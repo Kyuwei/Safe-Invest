@@ -1,0 +1,22 @@
+{
+  "status": { "error_code": 0, "error_message": null },
+  "data": {
+    "BTC": [
+      {
+        "id": 1,
+        "name": "Bitcoin",
+        "symbol": "BTC",
+        "slug": "bitcoin",
+        "quote": {
+          "EUR": {
+            "price": 68800.5,
+            "volume_24h": 33168627739.31,
+            "percent_change_24h": -1.72,
+            "market_cap": 1379967906238.47,
+            "last_updated": "2026-09-04T12:03:00.000Z"
+          }
+        }
+      }
+    ]
+  }
+}
