@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SafeInvest.Core.Tests</RootNamespace>
+    <AssemblyName>SafeInvest.Core.Tests</AssemblyName>
+    <!-- xUnit v3 runs on Microsoft.Testing.Platform; the .NET 10 SDK dropped VSTest.
+         This switches the generated entry point to the MTP one `dotnet test` drives. -->
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/SafeInvest.Core/SafeInvest.Core.csproj" />
+  </ItemGroup>
+
+</Project>
