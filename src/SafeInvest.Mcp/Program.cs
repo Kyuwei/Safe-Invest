@@ -29,6 +29,12 @@ using SettingsService settingsService = new();
 AppSettings settings = await settingsService.LoadAsync().ConfigureAwait(false);
 MarketDataOptions marketDataOptions = settings.ToMarketDataOptions(settingsService);
 
+// Lets CI and offline demos run the whole server without touching the network.
+if (Environment.GetEnvironmentVariable("SAFEINVEST_SIMULATED") is "1" or "true")
+{
+    marketDataOptions.ForceSimulated = true;
+}
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IGameStore>(_ => new JsonGameStore());
 builder.Services.AddSingleton<PortfolioEngine>();

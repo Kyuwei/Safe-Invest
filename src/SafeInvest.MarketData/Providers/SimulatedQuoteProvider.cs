@@ -93,13 +93,55 @@ public sealed class SimulatedQuoteProvider(TimeProvider? timeProvider = null) : 
     }
 
     /// <summary>
+    /// Plausible starting points for the assets the app ships in its catalog. A demo that
+    /// prices Bitcoin at 16 € teaches the wrong thing, so known assets are anchored to a
+    /// realistic order of magnitude and only the movement is invented.
+    /// </summary>
+    private static readonly Dictionary<string, double> AnchorPrices = new(StringComparer.Ordinal)
+    {
+        ["Crypto:BTC"] = 68_000d,
+        ["Crypto:ETH"] = 2_100d,
+        ["Crypto:BNB"] = 520d,
+        ["Crypto:SOL"] = 120d,
+        ["Crypto:XRP"] = 1.8d,
+        ["Crypto:ADA"] = 0.55d,
+        ["Crypto:AVAX"] = 22d,
+        ["Crypto:DOT"] = 4.2d,
+        ["Crypto:LINK"] = 14d,
+        ["Crypto:LTC"] = 85d,
+        ["Crypto:MATIC"] = 0.35d,
+        ["Crypto:DOGE"] = 0.16d,
+        ["Stock:AAPL"] = 230d,
+        ["Stock:MSFT"] = 430d,
+        ["Stock:GOOGL"] = 175d,
+        ["Stock:AMZN"] = 190d,
+        ["Stock:NVDA"] = 135d,
+        ["Stock:META"] = 560d,
+        ["Stock:TSLA"] = 240d,
+        ["Stock:NFLX"] = 700d,
+        ["Stock:MC.PA"] = 620d,
+        ["Stock:AIR.PA"] = 160d,
+        ["Stock:OR.PA"] = 380d,
+        ["Stock:TTE.PA"] = 60d,
+        ["Stock:SAN.PA"] = 95d,
+        ["Stock:BNP.PA"] = 68d,
+        ["Etf:CW8.PA"] = 520d,
+        ["Etf:ESE.PA"] = 30d,
+        ["Etf:SPY"] = 570d,
+        ["Etf:QQQ"] = 490d,
+        ["Etf:IWDA.AS"] = 100d,
+    };
+
+    /// <summary>
     /// A smooth pseudo-random walk built from three sine waves of different periods, so
     /// the curve has both a long trend and short-term noise without ever going negative.
     /// </summary>
     internal static decimal PriceAt(Asset asset, DateTimeOffset at)
     {
         uint seed = StableSeed(asset.Key);
-        double basePrice = BasePriceFor(asset.Kind, seed);
+        double basePrice = AnchorPrices.TryGetValue(asset.Key, out double anchor)
+            ? anchor
+            : BasePriceFor(asset.Kind, seed);
         double volatility = asset.Kind == AssetKind.Crypto ? 0.28d : 0.11d;
 
         double hours = (at - DateTimeOffset.UnixEpoch).TotalHours;
@@ -115,10 +157,11 @@ public sealed class SimulatedQuoteProvider(TimeProvider? timeProvider = null) : 
         return Round((decimal)price, asset.Kind);
     }
 
+    /// <summary>Fallback for assets outside the catalog: a plausible spread by family.</summary>
     private static double BasePriceFor(AssetKind kind, uint seed) => kind switch
     {
-        // Spread crypto over a wide range so BTC-sized and altcoin-sized prices both appear.
-        AssetKind.Crypto => 5d + Math.Pow(10d, 0.5d + seed % 4500 / 1000d),
+        // Crypto spans several orders of magnitude, from meme coins to Bitcoin.
+        AssetKind.Crypto => 0.5d + Math.Pow(10d, seed % 4000 / 1000d),
         AssetKind.Etf => 40d + seed % 400,
         _ => 15d + seed % 600,
     };

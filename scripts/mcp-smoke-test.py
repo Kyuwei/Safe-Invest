@@ -86,6 +86,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dotnet", default=shutil.which("dotnet") or "dotnet")
     parser.add_argument("--configuration", default="Release")
+    parser.add_argument(
+        "--simulated",
+        action="store_true",
+        help="Force les cours simulés : le test ne touche pas au réseau (utilisé en CI).",
+    )
     args = parser.parse_args()
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -99,8 +104,11 @@ def main() -> int:
         "DOTNET_NOLOGO": "1",
         "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
     }
+    if args.simulated:
+        environment["SAFEINVEST_SIMULATED"] = "1"
 
-    print(f"Données de test : {data_dir}")
+    print(f"Données de test : {data_dir}"
+          + ("  (cours simulés)" if args.simulated else "  (cours réels)"))
     print("Démarrage du serveur MCP…")
 
     process = subprocess.Popen(

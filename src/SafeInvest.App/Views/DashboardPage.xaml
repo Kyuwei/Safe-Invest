@@ -1,0 +1,247 @@
+<Page
+    x:Class="SafeInvest.App.Views.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SafeInvest.App.ViewModels"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Padding="28" Spacing="20">
+
+            <!-- Bandeau « cours simulés » : jamais laisser croire qu'un chiffre inventé est réel -->
+            <InfoBar x:Name="SimulatedBar"
+                     Severity="Warning"
+                     IsOpen="False"
+                     IsClosable="False"
+                     Title="Cours simulés"
+                     Message="Aucune source de données réelle n'a répondu. Les prix affichés sont générés localement : ils ne correspondent à aucun marché." />
+
+            <!-- Valeur du portefeuille -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}" Padding="26">
+                <Grid ColumnSpacing="28">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Spacing="6">
+                        <TextBlock Text="Valeur totale du portefeuille"
+                                   Style="{ThemeResource SafeInvestCaptionStyle}" />
+                        <TextBlock x:Name="TotalValueText"
+                                   FontSize="44"
+                                   FontWeight="Bold" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock x:Name="PnLGlyph" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="15" VerticalAlignment="Center" />
+                            <TextBlock x:Name="PnLText" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock x:Name="PnLPercentText" FontSize="15" VerticalAlignment="Center" Opacity="0.85" />
+                            <TextBlock Text="depuis le début de la partie"
+                                       Style="{ThemeResource SafeInvestCaptionStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Spacing="14" MinWidth="230">
+                        <StackPanel>
+                            <TextBlock Text="Argent disponible" Style="{ThemeResource SafeInvestCaptionStyle}" />
+                            <TextBlock x:Name="CashText" FontSize="19" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="Investi" Style="{ThemeResource SafeInvestCaptionStyle}" />
+                            <TextBlock x:Name="InvestedText" FontSize="19" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="Gains déjà encaissés" Style="{ThemeResource SafeInvestCaptionStyle}" />
+                            <TextBlock x:Name="RealizedText" FontSize="19" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Objectif -->
+            <Border x:Name="GoalCard" Style="{ThemeResource SafeInvestCardStyle}" Visibility="Collapsed">
+                <Grid ColumnSpacing="22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0" Width="96" Height="96">
+                        <muxc:ProgressRing x:Name="GoalRing"
+                                           Width="96" Height="96"
+                                           IsIndeterminate="False"
+                                           Minimum="0" Maximum="100"
+                                           Value="0" />
+                        <TextBlock x:Name="GoalPercentText"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="17"
+                                   FontWeight="SemiBold" />
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock x:Name="GoalStatusText" FontSize="17" FontWeight="SemiBold" />
+                        <TextBlock x:Name="GoalTargetText" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GoalPaceText"
+                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Positions -->
+            <StackPanel Spacing="12">
+                <Grid>
+                    <TextBlock Text="Portefeuille" Style="{ThemeResource SafeInvestSectionTitleStyle}" />
+                    <TextBlock x:Name="PositionCountText"
+                               HorizontalAlignment="Right"
+                               Style="{ThemeResource SafeInvestCaptionStyle}" />
+                </Grid>
+
+                <Border x:Name="EmptyPortfolioCard" Style="{ThemeResource SafeInvestCardStyle}" Visibility="Collapsed">
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Name="EmptyPortfolioTitle" FontWeight="SemiBold" />
+                        <TextBlock x:Name="EmptyPortfolioText"
+                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <ItemsControl x:Name="PositionsList">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="10" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PositionItem">
+                            <Border Style="{ThemeResource SafeInvestCardStyle}" Padding="16,14">
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0"
+                                            Width="6"
+                                            CornerRadius="3"
+                                            Background="{x:Bind Kind, Converter={StaticResource AssetKindToBrush}}" />
+
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind Symbol}" FontSize="16" FontWeight="SemiBold" />
+                                            <Border Background="{ThemeResource SafeInvestCardBorderBrush}"
+                                                    CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind KindLabel}" FontSize="10" />
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{x:Bind Name}" Style="{ThemeResource SafeInvestCaptionStyle}" />
+                                        <TextBlock Style="{ThemeResource SafeInvestCaptionStyle}">
+                                            <Run Text="{x:Bind QuantityText}" />
+                                            <Run Text="unités à" />
+                                            <Run Text="{x:Bind AverageCostText}" />
+                                            <Run Text="en moyenne ·" />
+                                            <Run Text="{x:Bind WeightText}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind SourceText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                                   Visibility="{x:Bind IsSimulated, Converter={StaticResource BoolToVisibility}}"
+                                                   Foreground="{ThemeResource SafeInvestWarningBrush}" />
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind PriceText}" FontSize="14" HorizontalAlignment="Right" />
+                                        <TextBlock Text="{x:Bind Change24hText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                                   HorizontalAlignment="Right" />
+                                    </StackPanel>
+
+                                    <Border Grid.Column="3"
+                                            CornerRadius="8"
+                                            Padding="12,8"
+                                            MinWidth="130"
+                                            VerticalAlignment="Center"
+                                            Background="{x:Bind Direction, Converter={StaticResource DirectionToSoftBrush}}">
+                                        <StackPanel>
+                                            <TextBlock Text="{x:Bind MarketValueText}"
+                                                       FontSize="15"
+                                                       FontWeight="SemiBold"
+                                                       HorizontalAlignment="Right" />
+                                            <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
+                                                <TextBlock Text="{x:Bind Direction, Converter={StaticResource DirectionToGlyph}}"
+                                                           FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                                           FontSize="11"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{x:Bind Direction, Converter={StaticResource DirectionToBrush}}" />
+                                                <TextBlock Text="{x:Bind PnLText}"
+                                                           FontSize="13"
+                                                           Foreground="{x:Bind Direction, Converter={StaticResource DirectionToBrush}}" />
+                                                <TextBlock Text="{x:Bind PnLPercentText}"
+                                                           FontSize="12"
+                                                           Opacity="0.85"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{x:Bind Direction, Converter={StaticResource DirectionToBrush}}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Journal des décisions de l'IA -->
+            <StackPanel x:Name="AiFeedSection" Spacing="12" Visibility="Collapsed">
+                <TextBlock Text="Ce que l'IA vient de faire" Style="{ThemeResource SafeInvestSectionTitleStyle}" />
+
+                <ItemsControl x:Name="AiFeedList">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="10" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TradeItem">
+                            <Border Style="{ThemeResource SafeInvestCardStyle}" Padding="16,14">
+                                <StackPanel Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Border CornerRadius="6" Padding="8,3"
+                                                Background="{x:Bind Direction, Converter={StaticResource DirectionToSoftBrush}}">
+                                            <TextBlock Text="{x:Bind SideLabel}"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold" />
+                                        </Border>
+                                        <TextBlock Text="{x:Bind Summary}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="{x:Bind RelativeText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <Border Background="{ThemeResource SafeInvestCardBorderBrush}"
+                                            CornerRadius="8"
+                                            Padding="12,9"
+                                            Visibility="{x:Bind Rationale, Converter={StaticResource StringToVisibility}}">
+                                        <TextBlock Text="{x:Bind Rationale}" TextWrapping="Wrap" FontStyle="Italic" />
+                                    </Border>
+
+                                    <TextBlock Text="{x:Bind RealizedText}"
+                                               FontSize="12"
+                                               Foreground="{x:Bind Direction, Converter={StaticResource DirectionToBrush}}"
+                                               Visibility="{x:Bind RealizedText, Converter={StaticResource StringToVisibility}}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

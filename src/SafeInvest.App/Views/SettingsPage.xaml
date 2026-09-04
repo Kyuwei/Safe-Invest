@@ -1,0 +1,168 @@
+<Page
+    x:Class="SafeInvest.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SafeInvest.App.ViewModels"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <ScrollViewer>
+        <StackPanel Padding="28,20,28,40" Spacing="18" MaxWidth="880" HorizontalAlignment="Left">
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="BackButton" Click="OnBackClick" Padding="10,6" Visibility="Collapsed">
+                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                </Button>
+                <TextBlock Text="Réglages" Style="{ThemeResource SafeInvestSectionTitleStyle}" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- État des sources -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Sources de données" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Text="Safe Invest interroge ces sources dans l'ordre et passe à la suivante dès qu'une échoue. La dernière, les cours simulés, garantit que l'application reste utilisable hors ligne."
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               TextWrapping="Wrap" />
+
+                    <ItemsControl x:Name="SourcesList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="8" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SourceItem">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Ellipse Grid.Column="0"
+                                             Width="10" Height="10"
+                                             VerticalAlignment="Center"
+                                             Fill="{x:Bind Direction, Converter={StaticResource DirectionToBrush}}" />
+
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind StateText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Content="Vérifier les sources maintenant" Click="OnTestSourcesClick" CornerRadius="8" />
+                </StackPanel>
+            </Border>
+
+            <!-- Ordre des sources -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Source privilégiée" FontSize="17" FontWeight="SemiBold" />
+
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ComboBox x:Name="CryptoSourceBox"
+                                  Grid.Column="0"
+                                  Header="Cryptomonnaies"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="CoinGecko (sans clé)" Tag="coingecko" />
+                            <ComboBoxItem Content="CoinMarketCap (clé requise)" Tag="coinmarketcap" />
+                        </ComboBox>
+
+                        <ComboBox x:Name="StockSourceBox"
+                                  Grid.Column="1"
+                                  Header="Actions et ETF"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Yahoo Finance (sans clé)" Tag="yahoo" />
+                            <ComboBoxItem Content="Finnhub (clé requise)" Tag="finnhub" />
+                        </ComboBox>
+                    </Grid>
+
+                    <ToggleSwitch x:Name="SimulatedSwitch"
+                                  Header="Mode démonstration (cours simulés)"
+                                  OffContent="Cours réels"
+                                  OnContent="Cours simulés, sans réseau" />
+                    <TextBlock Text="Utile pour une démonstration en classe sans connexion. Les cours sont générés localement et clairement signalés comme tels partout dans l'application."
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Clés API -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Clés API (facultatives)" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Text="L'application fonctionne sans aucune clé. En ajouter une augmente surtout le nombre d'appels autorisés. Les clés sont chiffrées avec votre compte Windows et ne quittent jamais votre machine."
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               TextWrapping="Wrap" />
+
+                    <PasswordBox x:Name="CoinGeckoKeyBox" Header="CoinGecko (clé Demo gratuite)" PlaceholderText="Laisser vide pour l'accès public" />
+                    <PasswordBox x:Name="CoinMarketCapKeyBox" Header="CoinMarketCap" PlaceholderText="Laisser vide pour ne pas utiliser cette source" />
+                    <PasswordBox x:Name="FinnhubKeyBox" Header="Finnhub" PlaceholderText="Laisser vide pour ne pas utiliser cette source" />
+                </StackPanel>
+            </Border>
+
+            <!-- Affichage -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Affichage" FontSize="17" FontWeight="SemiBold" />
+
+                    <ComboBox x:Name="ThemeBox" Header="Thème" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Content="Suivre Windows" Tag="Default" />
+                        <ComboBoxItem Content="Clair" Tag="Light" />
+                        <ComboBoxItem Content="Sombre" Tag="Dark" />
+                    </ComboBox>
+
+                    <ToggleSwitch x:Name="ColorBlindSwitch"
+                                  Header="Palette adaptée au daltonisme"
+                                  OffContent="Vert et rouge"
+                                  OnContent="Bleu et orange" />
+                    <TextBlock Text="Environ un homme sur douze distingue mal le vert du rouge. Cette option remplace le couple hausse/baisse par un bleu et un orange, lisibles dans tous les cas."
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               TextWrapping="Wrap" />
+
+                    <NumberBox x:Name="RefreshBox"
+                               Header="Actualisation automatique des cours (secondes)"
+                               Minimum="15"
+                               Maximum="3600"
+                               SpinButtonPlacementMode="Compact" />
+                </StackPanel>
+            </Border>
+
+            <!-- Données -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Vos parties" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock x:Name="DataFolderText"
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               IsTextSelectionEnabled="True"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="C'est aussi le dossier que lit le serveur MCP : c'est ce qui permet à une IA de jouer la partie que cette fenêtre affiche."
+                               Style="{ThemeResource SafeInvestCaptionStyle}"
+                               TextWrapping="Wrap" />
+                    <Button Content="Ouvrir le dossier" Click="OnOpenFolderClick" CornerRadius="8" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="True" />
+
+            <Button Content="Enregistrer les réglages"
+                    Click="OnSaveClick"
+                    Style="{ThemeResource AccentButtonStyle}"
+                    Padding="24,10"
+                    CornerRadius="10"
+                    HorizontalAlignment="Left" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

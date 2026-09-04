@@ -357,3 +357,32 @@ public class HttpHeaderTests
         Assert.Contains("Mozilla", request.Headers.UserAgent.ToString(), StringComparison.Ordinal);
     }
 }
+
+public class SimulatedPriceRealismTests
+{
+    /// <summary>
+    /// The demo mode is used to teach. Bitcoin at 16 € would be a lesson in the wrong
+    /// direction, so catalogued assets stay within a believable band.
+    /// </summary>
+    [Theory]
+    [InlineData("BTC", AssetKind.Crypto, 20_000, 200_000)]
+    [InlineData("ETH", AssetKind.Crypto, 500, 8_000)]
+    [InlineData("DOGE", AssetKind.Crypto, 0.01, 1)]
+    [InlineData("MSFT", AssetKind.Stock, 150, 1_200)]
+    [InlineData("SPY", AssetKind.Etf, 200, 1_500)]
+    public void Well_known_assets_stay_in_a_believable_price_band(
+        string symbol,
+        AssetKind kind,
+        double floor,
+        double ceiling)
+    {
+        Asset asset = AssetCatalog.Find(kind, symbol)!;
+        DateTimeOffset start = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        for (int day = 0; day < 365; day += 5)
+        {
+            decimal price = SimulatedQuoteProvider.PriceAt(asset, start.AddDays(day));
+            Assert.InRange(price, (decimal)floor, (decimal)ceiling);
+        }
+    }
+}

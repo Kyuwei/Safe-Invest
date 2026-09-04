@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+
+jobs:
+  # Everything that is not WinUI builds and is tested on Linux, which is fast and
+  # catches the bulk of the regressions.
+  libraries:
+    name: Bibliothèques et tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restaurer
+        run: |
+          dotnet restore src/SafeInvest.Core/SafeInvest.Core.csproj
+          dotnet restore src/SafeInvest.MarketData/SafeInvest.MarketData.csproj
+          dotnet restore src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
+          dotnet restore tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj
+          dotnet restore tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj
+
+      - name: Compiler
+        run: |
+          dotnet build src/SafeInvest.Mcp/SafeInvest.Mcp.csproj -c Release --no-restore
+          dotnet build tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-restore
+          dotnet build tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-restore
+
+      - name: Tests unitaires
+        run: |
+          dotnet test tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-build
+          dotnet test tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-build
+
+      - name: Test de bout en bout du serveur MCP
+        # Cours simulés : la CI ne doit pas dépendre de la disponibilité d'API tierces.
+        run: python3 scripts/mcp-smoke-test.py --simulated
+
+  # WinUI 3 ne se compile que sous Windows : c'est ici que l'application est vérifiée.
+  app:
+    name: Application WinUI 3
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Compiler la solution complète
+        run: dotnet build Safe-Invest.sln -c Release
+
+      - name: Publier l'application (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=false
+          -o artifacts/SafeInvest-win-x64
+
+      - name: Publier le serveur MCP (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
+          -c Release -r win-x64 --self-contained true
+          -o artifacts/SafeInvest-mcp-win-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeInvest-win-x64
+          path: artifacts/
+          retention-days: 14
