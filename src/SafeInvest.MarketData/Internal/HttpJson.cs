@@ -11,7 +11,13 @@ namespace SafeInvest.MarketData.Internal;
 /// </summary>
 internal static class HttpJson
 {
-    internal static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+    /// <summary>
+    /// Sent on every request that does not set its own. HttpClient sends no User-Agent by
+    /// default, and the Cloudflare front ends in front of CoinGecko (and others) answer 403
+    /// to anything anonymous — so an identified client is the difference between the main
+    /// crypto source working and the chain silently falling through to a scraper.
+    /// </summary>
+    public const string DefaultUserAgent = "SafeInvest/0.1 (+https://github.com/Kyuwei/Safe-Invest)";
 
     public static async Task<JsonDocument> GetAsync(
         HttpClient client,
@@ -22,13 +28,7 @@ internal static class HttpJson
     {
         using HttpRequestMessage request = new(HttpMethod.Get, url);
 
-        if (headers is not null)
-        {
-            foreach ((string name, string value) in headers)
-            {
-                request.Headers.TryAddWithoutValidation(name, value);
-            }
-        }
+        ApplyHeaders(request, headers);
 
         HttpResponseMessage response;
         try
@@ -85,13 +85,7 @@ internal static class HttpJson
     {
         using HttpRequestMessage request = new(HttpMethod.Get, url);
 
-        if (headers is not null)
-        {
-            foreach ((string name, string value) in headers)
-            {
-                request.Headers.TryAddWithoutValidation(name, value);
-            }
-        }
+        ApplyHeaders(request, headers);
 
         try
         {
@@ -119,6 +113,22 @@ internal static class HttpJson
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             throw new QuoteProviderException(providerId, $"{providerId} est injoignable : {ex.Message}", ex);
+        }
+    }
+
+    private static void ApplyHeaders(HttpRequestMessage request, IReadOnlyDictionary<string, string>? headers)
+    {
+        if (headers is not null)
+        {
+            foreach ((string name, string value) in headers)
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
+        }
+
+        if (!request.Headers.Contains("User-Agent"))
+        {
+            request.Headers.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
         }
     }
 

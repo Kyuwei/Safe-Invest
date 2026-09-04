@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafeInvest.MarketData", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafeInvest.MarketData.Tests", "tests\SafeInvest.MarketData.Tests\SafeInvest.MarketData.Tests.csproj", "{8CF3631E-CAC9-4FC5-A33E-FE147A0D1080}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafeInvest.Mcp", "src\SafeInvest.Mcp\SafeInvest.Mcp.csproj", "{E57EEC30-BA1A-4011-A144-5FBC042AD70A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -73,6 +75,18 @@ Global
 		{8CF3631E-CAC9-4FC5-A33E-FE147A0D1080}.Release|x64.Build.0 = Release|Any CPU
 		{8CF3631E-CAC9-4FC5-A33E-FE147A0D1080}.Release|x86.ActiveCfg = Release|Any CPU
 		{8CF3631E-CAC9-4FC5-A33E-FE147A0D1080}.Release|x86.Build.0 = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|x64.Build.0 = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Debug|x86.Build.0 = Debug|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|x64.ActiveCfg = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|x64.Build.0 = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|x86.ActiveCfg = Release|Any CPU
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -82,5 +96,6 @@ Global
 		{D0D31F02-5B4D-4E37-A2CD-C5F377ED3916} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{6DDC183B-94FE-48EC-A60E-E59BD871BF6B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8CF3631E-CAC9-4FC5-A33E-FE147A0D1080} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{E57EEC30-BA1A-4011-A144-5FBC042AD70A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

@@ -320,3 +320,40 @@ public class AssetCatalogTests
         Assert.NotEmpty(AssetCatalog.Search("", AssetKind.Crypto, 5));
     }
 }
+
+public class HttpHeaderTests
+{
+    /// <summary>
+    /// Regression guard: HttpClient sends no User-Agent by default and CoinGecko's
+    /// Cloudflare front end answers 403 to anonymous callers. Losing this header silently
+    /// demotes the main crypto source to the scraper fallback.
+    /// </summary>
+    [Fact]
+    public async Task Every_request_identifies_the_application()
+    {
+        FakeHttpMessageHandler handler = new FakeHttpMessageHandler()
+            .RespondWithFixture("simple/price", "coingecko-simple-price.json");
+        CoinGeckoProvider provider = new(handler.CreateClient(), new MarketDataOptions());
+
+        await provider.GetQuotesAsync([AssetCatalog.Find(AssetKind.Crypto, "BTC")!], "EUR");
+
+        HttpRequestMessage request = Assert.Single(handler.Requests);
+        Assert.True(request.Headers.Contains("User-Agent"), "Aucun User-Agent envoyé.");
+        Assert.Contains("SafeInvest", request.Headers.UserAgent.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_provider_that_needs_a_browser_user_agent_keeps_its_own()
+    {
+        FakeHttpMessageHandler handler = new FakeHttpMessageHandler()
+            .RespondWithFixture("chart/MSFT", "yahoo-chart-msft.json");
+        YahooFinanceProvider provider = new(handler.CreateClient());
+
+        await provider.GetQuotesAsync(
+            [new Asset { Symbol = "MSFT", Name = "Microsoft", Kind = AssetKind.Stock }],
+            "USD");
+
+        HttpRequestMessage request = Assert.Single(handler.Requests);
+        Assert.Contains("Mozilla", request.Headers.UserAgent.ToString(), StringComparison.Ordinal);
+    }
+}

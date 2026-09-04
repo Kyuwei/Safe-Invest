@@ -12,6 +12,9 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 
     public List<string> RequestedUrls { get; } = [];
 
+    /// <summary>Every request seen, kept so tests can assert on headers as well as URLs.</summary>
+    public List<HttpRequestMessage> Requests { get; } = [];
+
     public FakeHttpMessageHandler Respond(string urlContains, string body, HttpStatusCode status = HttpStatusCode.OK)
     {
         _routes.Add((urlContains, status, body));
@@ -33,6 +36,7 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
     {
         string url = request.RequestUri?.ToString() ?? string.Empty;
         RequestedUrls.Add(url);
+        Requests.Add(request);
 
         foreach ((string match, HttpStatusCode status, string body) in _routes)
         {
