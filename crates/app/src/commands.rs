@@ -165,7 +165,14 @@ pub fn create_game(context: tauri::State<'_, Context>, args: NewGameArgs) -> Ans
             player_kind,
             starting_cash: parse_amount(&args.starting_cash)?,
             currency: args.currency,
-            fee_percent: args.fee_percent.as_deref().map(parse_amount).transpose()?,
+            // An emptied fee box means "no fees", not a malformed number.
+            fee_percent: args
+                .fee_percent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(parse_amount)
+                .transpose()?,
             target_amount,
             deadline,
         },

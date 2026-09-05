@@ -68,6 +68,12 @@ jobs:
       - name: Tests
         run: cargo test --workspace --locked
 
+      # The interface has no build step and no package manager, but the one
+      # piece of real arithmetic in it — what a goal demands per year — is
+      # worth testing. Node's own runner, no install.
+      - name: Tests de l'interface
+        run: node --test crates/app/ui/tests/*.test.js
+
       - name: L'application démarre vraiment
         # The previous release compiled and then would not launch. This runs the
         # real binary under a virtual display and fails if the window dies.

@@ -5,6 +5,7 @@
 import { AppError, api, onGameChanged } from "./api.js";
 import { $, $$, reportError, toast } from "./ui.js";
 import * as screens from "./screens.js";
+import { goalPreview } from "./goal.js";
 
 const state = {
   screen: "home",
@@ -154,34 +155,25 @@ function bindNewGameForm() {
  * Says out loud what the goal actually demands, before the game starts.
  *
  * "+180 %/an" is a sentence a beginner can weigh; "15 000 € en 2027" is not.
+ * The arithmetic and the wording live in `goal.js`, where they are tested.
  */
 function updateGoalPreview() {
   const form = $("#new-game-form");
   const preview = $("#goal-preview");
-  preview.textContent = "";
 
-  if (form.elements.playerKind.value !== "ai") return;
-
-  const start = Number(String(form.elements.startingCash.value).replace(",", "."));
-  const target = Number(String(form.elements.targetAmount.value).replace(",", "."));
-  const deadline = form.elements.deadline.value;
-  if (!(start > 0) || !(target > start) || !deadline) return;
-
-  const years = (new Date(deadline) - Date.now()) / (365.25 * 24 * 3600 * 1000);
-  if (!(years > 0.01)) {
-    preview.textContent = "Cette date est trop proche pour que l'objectif ait un sens.";
+  if (form.elements.playerKind.value !== "ai") {
+    preview.textContent = "";
     return;
   }
 
-  const rate = ((target / start) ** (1 / years) - 1) * 100;
-  const rounded = rate.toFixed(1).replace(".", ",");
+  const number = (value) => Number(String(value).replace(",", "."));
+  const deadline = form.elements.deadline.value;
 
-  let verdict = "c'est ambitieux mais jouable";
-  if (rate < 8) verdict = "c'est raisonnable, proche de ce que fait un marché actions sur longue durée";
-  else if (rate > 40) verdict = "c'est très ambitieux : aucun placement ne tient ce rythme durablement";
-  else if (rate > 100) verdict = "aucun placement réel ne fait ça";
-
-  preview.textContent = `Il faudrait environ +${rounded} % par an — ${verdict}.`;
+  preview.textContent = goalPreview(
+    number(form.elements.startingCash.value),
+    number(form.elements.targetAmount.value),
+    deadline ? Date.parse(deadline) : Number.NaN
+  );
 }
 
 /* --------------------------------------------------------------- game */

@@ -1,0 +1,6 @@
+{
+  "name": "safe-invest-ui",
+  "private": true,
+  "type": "module",
+  "description": "Marks these files as ES modules for Node's test runner. There are no dependencies and no install step: the interface is hand-written HTML, CSS and JavaScript, embedded in the executable as-is."
+}

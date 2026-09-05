@@ -26,28 +26,35 @@ plusieurs : chaque décision est écrite, donc discutable.
 
 ### Combien ?
 
-Quatre montants d'un clic (1 000, 10 000, 100 000, 1 000 000) ou n'importe quel montant au
-clavier. Un conseil : commencer petit rend les erreurs plus parlantes.
+Trois montants d'un clic (1 000, 10 000, 100 000 €) ou n'importe quelle somme au clavier.
+Un conseil : commencer petit rend les erreurs plus parlantes.
 
-Dans **Options avancées**, on peut ajouter des **frais de courtage** (0,1 % à 1 % est
-réaliste). Avec des frais, on découvre vite qu'acheter et revendre sans arrêt coûte cher.
+À côté, la devise et les **frais par opération** (0,1 % à 1 % est réaliste). Avec des
+frais, on découvre vite qu'acheter et revendre sans arrêt coûte cher.
 
 ### L'objectif
 
-Un montant à atteindre et une date limite. C'est surtout la consigne donnée à une IA, mais
-un joueur humain peut aussi s'en fixer un.
+Un montant à atteindre et une date limite. C'est la consigne donnée à une IA : les deux
+champs apparaissent dès qu'on choisit « Une IA ».
 
-L'écran affiche immédiatement ce que l'objectif **exige vraiment** :
+Dès que les deux sont remplis, l'écran dit ce que l'objectif **exige vraiment** :
 
-> Passer de 10 000,00 € à 1 000 000,00 € en 1,0 an(s) demande environ +9 900,00 % par an.
-> C'est irréaliste sans une prise de risque considérable — et donc un risque de tout perdre.
+> Il faudrait environ +9 900,0 % par an — aucun placement réel ne tient ça, même une année.
 
-C'est la leçon la plus utile de l'application, et elle arrive avant même d'avoir joué.
+Pour un objectif plus sage, la phrase change de ton :
+
+> Il faudrait environ +7,2 % par an — c'est raisonnable, proche de ce que fait un marché
+> actions sur longue durée.
+
+C'est peut-être la leçon la plus utile de l'application, et elle arrive avant même d'avoir
+joué le premier ordre.
 
 ## 3. Le tableau de bord
 
-**La valeur totale** en gros, colorée : vert si le portefeuille vaut plus que le capital de
-départ, rouge sinon. Juste en dessous, le gain ou la perte, en euros et en pourcentage.
+**La valeur totale** en gros. Juste en dessous, le gain ou la perte, en euros et en
+pourcentage, en vert si le portefeuille vaut plus que le capital de départ et en rouge
+sinon — avec un « + » explicite sur les gains, pour que la couleur ne soit jamais le seul
+signal.
 
 À droite, trois chiffres :
 
