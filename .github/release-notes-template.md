@@ -1,36 +1,61 @@
-Simulateur d'investissement pédagogique : de l'argent **fictif**, de **vrais** cours de
-marché. Rien ne peut être perdu, et pourtant tout est vrai sauf l'argent.
+Simulateur d'investissement pédagogique : de l'argent fictif, de vrais cours.
 
 ## Installation
 
-1. Télécharger `SafeInvest-{VERSION}-win-x64.zip`
-2. Décompresser le dossier où vous voulez
-3. Lancer `SafeInvest.exe`
+Téléchargez **`safe-invest.exe`** et double-cliquez. C'est tout — un seul
+fichier de {SIZE} Mo, rien à installer, rien à désinstaller. Vos parties sont
+enregistrées dans `%LOCALAPPDATA%\SafeInvest`.
 
-Aucune installation, aucun certificat, aucune inscription à un service de données :
-l'application interroge CoinGecko et Yahoo Finance sans clé API.
+Windows 10 (2004 ou plus récent) et Windows 11 conviennent. L'application
+s'appuie sur *Microsoft Edge WebView2*, présent d'origine sur Windows 11 et
+installé avec Edge sur Windows 10. S'il manque, l'application vous le dit et
+vous donne le lien.
 
-Windows 10 version 1809 (build 17763) ou plus récent, ou Windows 11. Le runtime .NET et
-le Windows App SDK sont inclus dans l'archive.
+En cas de doute, ouvrez un terminal dans le dossier du fichier et lancez :
+
+```
+safe-invest.exe doctor
+```
+
+Il affiche où sont vos données, si le moteur web est présent et quelles
+sources de cours sont configurées.
 
 ## Faire jouer une IA
 
-`SafeInvest-MCP-{VERSION}-win-x64.zip` contient le serveur MCP : une IA peut créer une
-partie, consulter les cours, acheter et vendre, et l'application affiche chaque opération
-en direct avec la justification donnée. Configuration du client dans
-[docs/mcp.md](https://github.com/Kyuwei/Safe-Invest/blob/main/docs/mcp.md).
+Le même fichier est aussi un serveur MCP. Dans la configuration de votre client
+(Claude Desktop, `.mcp.json`, …) :
 
-## Bon à savoir
+```json
+{
+  "mcpServers": {
+    "safe-invest": {
+      "command": "C:\\chemin\\vers\\safe-invest.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
-L'archive de l'application pèse une centaine de mégaoctets, et ce n'est pas un `.exe`
-isolé : une application WinUI 3 non empaquetée embarque le Windows App SDK à côté de son
-exécutable. Gardez le dossier entier.
+L'IA dispose alors de quatorze outils : créer une partie, chercher un actif,
+relever un cours, acheter, vendre, suivre l'objectif. En partie IA, chaque
+opération doit être accompagnée d'une justification, qui s'affiche dans
+l'historique — c'est ce qui rend la partie lisible pour la personne qui
+apprend.
 
-Les cours qui ne viennent pas d'une source réelle — mode démonstration, ou repli quand
-toutes les sources sont indisponibles — sont signalés comme tels partout dans
-l'interface.
+## Vérifier le téléchargement
 
----
+```
+certutil -hashfile safe-invest.exe SHA256
+```
 
-L'argent est fictif, aucune transaction réelle n'est jamais passée, et rien dans cette
-application ne constitue un conseil en investissement.
+Doit donner :
+
+```
+{SHA256}
+```
+
+## Avertissement
+
+L'argent est fictif. Les cours sont réels, mais ce programme n'est ni un
+conseil en investissement ni un outil de gestion. Quand aucune source ne
+répond, un marché simulé prend le relais et l'interface l'indique clairement.

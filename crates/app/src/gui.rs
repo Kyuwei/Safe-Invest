@@ -25,6 +25,18 @@ pub fn run(options: &Options) -> anyhow::Result<()> {
         );
     }
 
+    // Tauri would otherwise spin up one worker per core. This app's async work
+    // is a handful of small HTTP requests a minute; two workers cover it, and
+    // the thread stacks and per-worker allocations of a 16-core machine do not
+    // sit in memory for nothing.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .thread_name("safe-invest-async")
+        .build()
+        .context("impossible de démarrer l'exécuteur asynchrone")?;
+    tauri::async_runtime::set(runtime.handle().clone());
+
     let context = crate::cli::build_context(options)?;
 
     tauri::Builder::default()

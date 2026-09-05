@@ -69,8 +69,12 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
             // Logs go to stderr and only to stderr: stdout carries the protocol,
             // and one stray line on it makes the client stop answering.
             cli::init_logging(true);
+            // Two workers: the server answers one JSON-RPC call at a time and
+            // spends that time waiting on the network, not on the CPU.
             let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
                 .enable_all()
+                .thread_name("safe-invest-mcp")
                 .build()?;
             runtime.block_on(async {
                 let context = cli::build_context(options)?;
