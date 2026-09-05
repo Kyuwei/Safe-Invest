@@ -47,5 +47,3 @@ Thumbs.db
 appsettings.Local.json
 secrets.json
 .env
-# Fichiers générés par scripts/typecheck-app.sh
-src/SafeInvest.App/**/*.stub.cs

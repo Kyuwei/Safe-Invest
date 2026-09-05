@@ -120,6 +120,20 @@ membres que le compilateur XAML aurait générés et vérifie tout le C# de l'ap
 une trentaine de secondes, sans Windows. Le XAML lui-même — balisage, chemins de binding,
 ressources manquantes — reste vérifié par la CI Windows.
 
+### Si la compilation Windows échoue avec `WMC9999`
+
+`dotnet build` exécute le compilateur XAML dans un processus séparé qui n'arrive pas à
+charger les ressources de ses propres messages : toute erreur XAML réelle ressort alors
+comme « Xaml Internal Error WMC9999 », sans indiquer ni le fichier ni la cause.
+
+La CI contourne le problème : en cas d'échec, elle recompile l'application avec MSBuild de
+Visual Studio, qui exécute le même compilateur en processus et affiche l'erreur réelle. En
+local, la même commande fonctionne :
+
+```powershell
+MSBuild.exe src\SafeInvest.App\SafeInvest.App.csproj /p:Configuration=Release /p:UseXamlCompilerExecutable=false
+```
+
 ## Avertissement
 
 Safe Invest est un **jeu éducatif**. L'argent est fictif, aucune transaction réelle n'est
