@@ -98,7 +98,7 @@ export function renderDashboard(view, { onBuy, onSell, onOpen }) {
   // In an AI game the human watches; the buy button would be a lie.
   $("#tab-market").disabled = view.observerMode;
 
-  renderCurve(view.valueHistory, view.currency);
+  renderCurve(view.valueHistory, view.valueHistoryLabel, view.currency);
   renderSourceNote(view);
   renderGoal(view.goal);
   renderPositions(view, { onBuy, onSell, onOpen });
@@ -111,7 +111,7 @@ export function renderDashboard(view, { onBuy, onSell, onOpen }) {
  * has one point, and a curve drawn through one point would be a decoration
  * pretending to be information.
  */
-function renderCurve(values, currency) {
+function renderCurve(values, label, currency) {
   const figure = $("#value-curve");
   const points = Array.isArray(values) ? values : [];
 
@@ -128,7 +128,7 @@ function renderCurve(values, currency) {
   $("#curve-line").setAttribute("d", linePath(points, 600, 90));
   $("#curve-area").setAttribute("d", areaPath(points, 600, 90));
   $("#curve-caption").textContent =
-    `Valeur du portefeuille sur les ${points.length} derniers relevés, en ${currency}.`;
+    `Valeur du portefeuille ${label || "depuis le début"}, en ${currency}.`;
 }
 
 function renderSourceNote(view) {

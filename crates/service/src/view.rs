@@ -46,6 +46,8 @@ pub struct DashboardView {
     /// The portfolio's value over time, oldest first, for the dashboard curve.
     /// Empty until the game has been open long enough to record a second point.
     pub value_history: Vec<f64>,
+    /// The span the curve covers, in words — "sur les 30 derniers jours".
+    pub value_history_label: String,
 
     /// Sources behind the numbers on screen, so the badge can name them.
     pub sources: Vec<String>,
@@ -204,6 +206,7 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
             .iter()
             .map(|point| to_f64(point.total_value))
             .collect(),
+        value_history_label: history_span(&session.value_history),
 
         sources,
         contains_simulated_prices: snapshot.contains_simulated_prices,
@@ -462,6 +465,28 @@ fn grouped(value: Decimal, decimals: usize) -> String {
     }
 }
 
+/// How far back the curve reaches, said the way a person would say it.
+///
+/// "sur les 121 derniers relevés" is a number about the program; "sur les
+/// 30 derniers jours" is a number about the portfolio.
+fn history_span(points: &[safe_invest_core::model::ValuePoint]) -> String {
+    let (Some(first), Some(last)) = (points.first(), points.last()) else {
+        return String::new();
+    };
+
+    let seconds = last.at.as_second().saturating_sub(first.at.as_second());
+    let hours = seconds / 3_600;
+    let days = seconds / 86_400;
+
+    match (days, hours) {
+        (0, 0) => "depuis le début de la partie".to_owned(),
+        (0, 1) => "sur la dernière heure".to_owned(),
+        (0, hours) => format!("sur les {hours} dernières heures"),
+        (1, _) => "sur les dernières 24 heures".to_owned(),
+        (days, _) => format!("sur les {days} derniers jours"),
+    }
+}
+
 fn direction_of(value: Option<Decimal>) -> Direction {
     match value {
         Some(v) if v > Decimal::ZERO => 1,
@@ -525,6 +550,31 @@ mod tests {
     #[test]
     fn an_unknown_currency_prints_the_number_without_inventing_a_symbol() {
         assert_eq!(money(d("10"), "JPY"), "10,00 ");
+    }
+
+    #[test]
+    fn the_curve_span_is_said_the_way_a_person_would_say_it() {
+        use safe_invest_core::model::ValuePoint;
+
+        let at = |seconds: i64| ValuePoint {
+            at: Timestamp::from_second(seconds).unwrap(),
+            total_value: Decimal::ONE,
+        };
+
+        assert_eq!(history_span(&[]), "");
+        assert_eq!(history_span(&[at(0)]), "depuis le début de la partie");
+        assert_eq!(
+            history_span(&[at(0), at(3 * 3600)]),
+            "sur les 3 dernières heures"
+        );
+        assert_eq!(
+            history_span(&[at(0), at(86_400)]),
+            "sur les dernières 24 heures"
+        );
+        assert_eq!(
+            history_span(&[at(0), at(30 * 86_400)]),
+            "sur les 30 derniers jours"
+        );
     }
 
     #[test]
