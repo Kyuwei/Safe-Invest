@@ -1,0 +1,8 @@
+# Product names that legitimately carry inner capitals in prose.
+doc-valid-idents = [
+    "CoinGecko",
+    "CoinMarketCap",
+    "WebView2",
+    "SafeInvest",
+    "..",
+]

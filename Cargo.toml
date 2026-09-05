@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/market", "crates/mcp", "crates/app"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/Kyuwei/Safe-Invest"
+authors = ["Safe Invest contributors"]
+
+[workspace.dependencies]
+safe-invest-core = { path = "crates/core", version = "0.2.0" }
+safe-invest-market = { path = "crates/market", version = "0.2.0" }
+safe-invest-mcp = { path = "crates/mcp", version = "0.2.0" }
+
+anyhow = "1.0.104"
+jiff = { version = "0.2.35", features = ["serde"] }
+rust_decimal = { version = "1.43.0", default-features = false, features = ["serde-str", "std", "maths-nopanic"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", default-features = false }
+tracing = "0.1.44"
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
+
+# The release profile is where the "one lean .exe" requirement is actually met:
+# one codegen unit and fat LTO let the linker drop everything unreachable, and
+# `strip` removes the symbol table that would otherwise double the binary.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+
+# Profiling builds: release speed, but with the frame pointers and symbols a
+# profiler needs to attribute samples. See docs/performance.md.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
+panic = "unwind"
+
+# Lints are set once for the whole workspace so a rule can never be silently
+# relaxed in a single crate.
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Money must never truncate or panic on a bad index. `arithmetic_side_effects`
+# is deliberately not enabled: it fires on every `Decimal` operator and would
+# drown the signal. Overflow safety is instead enforced where it matters, by
+# routing all money arithmetic through the checked helpers in `money.rs`.
+indexing_slicing = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+# Noise from pedantic that does not earn its keep in this codebase.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+implicit_hasher = "allow"
