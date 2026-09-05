@@ -272,7 +272,13 @@ async function loadMarket() {
 const trade = { side: "buy", mode: "amount", asset: null };
 
 function openBuy(position) {
-  openTrade("buy", { symbol: position.symbol, name: position.name, kind: position.kind });
+  openTrade("buy", {
+    symbol: position.symbol,
+    name: position.name,
+    kind: position.kind,
+    priceRaw: position.priceRaw,
+    price: position.price,
+  });
 }
 
 function openSell(position) {
@@ -280,7 +286,10 @@ function openSell(position) {
     symbol: position.symbol,
     name: position.name,
     kind: position.kind,
+    priceRaw: position.priceRaw,
+    price: position.price,
     quantity: position.quantity,
+    quantityRaw: position.quantityRaw,
   });
 }
 
@@ -290,17 +299,20 @@ function openTrade(side, asset) {
   trade.mode = side === "sell" ? "quantity" : "amount";
 
   $("#trade-title").textContent = side === "buy" ? "Acheter" : "Vendre";
-  $("#trade-asset").textContent = `${asset.symbol} — ${asset.name}`;
+  $("#trade-asset").textContent =
+    `${asset.symbol} — ${asset.name}` + (asset.price ? ` · ${asset.price}` : "");
   $("#trade-input").value = "";
   $("#trade-error").hidden = true;
-  $("#trade-estimate").textContent =
-    side === "sell" && asset.quantity ? `Vous détenez ${asset.quantity}.` : "";
+
+  // "Tout vendre" only makes sense on a position that exists.
+  $("#trade-mode-all").hidden = side !== "sell";
 
   // A human need not justify a trade; in an AI game the window is read-only,
   // so this field is only ever shown when the game is a human one.
   $("#trade-rationale-field").hidden = true;
 
   syncTradeMode();
+  updateEstimate();
   $("#trade-dialog").showModal();
   $("#trade-input").focus();
 }
@@ -309,10 +321,65 @@ function syncTradeMode() {
   for (const button of $$("#trade-mode button")) {
     button.classList.toggle("is-active", button.dataset.mode === trade.mode);
   }
-  $("#trade-input-label").textContent =
-    trade.mode === "amount"
-      ? trade.side === "buy" ? "Montant à investir" : "Montant à récupérer"
-      : "Quantité";
+
+  const label = $("#trade-input-label");
+  const input = $("#trade-input");
+
+  if (trade.mode === "all") {
+    label.textContent = "Toute la position";
+    input.value = trade.asset?.quantity ?? "";
+    input.disabled = true;
+  } else {
+    input.disabled = false;
+    label.textContent =
+      trade.mode === "amount"
+        ? trade.side === "buy" ? "Montant à investir" : "Montant à récupérer"
+        : "Quantité";
+  }
+  updateEstimate();
+}
+
+/**
+ * Says what the typed figure buys, before the order is sent.
+ *
+ * "3 000 €, c'est 0,049 BTC" is the sentence that makes an order concrete for
+ * someone learning. It is a preview only — the engine recomputes everything in
+ * decimal, and its answer is what gets recorded.
+ */
+function updateEstimate() {
+  const estimate = $("#trade-estimate");
+  const asset = trade.asset;
+  if (!asset) {
+    estimate.textContent = "";
+    return;
+  }
+
+  const held = asset.quantity ? `Vous détenez ${asset.quantity}. ` : "";
+
+  if (trade.mode === "all") {
+    estimate.textContent = `${held}Tout sera vendu au cours du moment.`;
+    return;
+  }
+
+  const typed = Number(String($("#trade-input").value).replace(",", "."));
+  const price = asset.priceRaw;
+  if (!(typed > 0) || !(price > 0)) {
+    estimate.textContent = held;
+    return;
+  }
+
+  if (trade.mode === "amount") {
+    const units = typed / price;
+    // Small prices need more decimals to say anything at all.
+    const shown = units < 1 ? units.toPrecision(4) : units.toFixed(4);
+    estimate.textContent =
+      `${held}Soit environ ${shown.replace(".", ",")} ${asset.symbol} au cours actuel.`;
+  } else {
+    const total = typed * price;
+    estimate.textContent =
+      `${held}Soit environ ${total.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} ` +
+      `au cours actuel, frais en plus.`;
+  }
 }
 
 function bindTradeDialog() {
@@ -323,6 +390,7 @@ function bindTradeDialog() {
     });
   }
 
+  $("#trade-input").addEventListener("input", updateEstimate);
   $("#trade-cancel").addEventListener("click", () => $("#trade-dialog").close());
 
   $("#trade-form").addEventListener("submit", async (event) => {
@@ -336,7 +404,7 @@ function bindTradeDialog() {
       kind: trade.asset.kind,
       quantity: trade.mode === "quantity" ? value : null,
       amount: trade.mode === "amount" ? value : null,
-      all: false,
+      all: trade.mode === "all",
       rationale: $("#trade-rationale").value.trim() || null,
     };
 

@@ -59,8 +59,9 @@ départ, rouge sinon. Juste en dessous, le gain ou la perte, en euros et en pour
 restant, et le rendement annuel encore nécessaire.
 
 **Les lignes du portefeuille** : une carte par actif, avec la quantité, le prix d'achat
-moyen, le cours actuel, la variation sur 24 heures et la plus ou moins-value. La pastille
-de couleur à gauche indique la famille : crypto, action ou ETF.
+moyen, le cours actuel et la plus ou moins-value. Le liseré de couleur à gauche dit d'un
+coup d'œil si la ligne est en gain ou en perte, et un badge donne son poids dans le
+portefeuille. Un cours simulé est signalé sous la carte.
 
 En partie IA, une section supplémentaire liste **les dernières décisions de l'IA**, chacune
 avec sa justification.
@@ -70,16 +71,21 @@ avec sa justification.
 La recherche accepte un nom (« bitcoin », « microsoft ») ou un symbole (« BTC », « MSFT »).
 Sans rien taper, l'application propose une sélection d'actifs connus.
 
-Le bouton **Acheter / vendre** ouvre une fiche qui montre :
+Chaque ligne montre le cours, la variation sur 24 heures en vert ou en rouge, et la
+mention « simulé » quand le chiffre ne vient pas d'une vraie source.
 
-- le cours actuel et sa variation sur 24 heures ;
-- une courbe du dernier mois ;
-- **d'où vient le chiffre** — CoinGecko, Yahoo Finance, ou un cours simulé ;
-- ce que votre montant représente **en unités** (par exemple 0,043 BTC pour 3 000 €) ;
-- une explication courte de ce que le cours et la variation veulent dire.
+Le bouton **Acheter** ouvre une fiche qui rappelle le cours et propose deux façons de
+dimensionner l'ordre :
 
-Pour vendre : laisser le montant vide vend la position entière ; indiquer un montant vend
-juste ce qu'il faut pour l'obtenir.
+- **pour un montant** — « 3 000 € » ; la fiche répond aussitôt *« soit environ
+  0,049 BTC au cours actuel »*, ce qui rend l'ordre concret ;
+- **par quantité** — « 0,05 BTC » ; la fiche annonce ce que cela coûtera.
+
+Depuis le tableau de bord, une position offre en plus **Vendre**, avec un troisième
+choix : **Tout vendre**, qui solde la ligne entière au cours du moment.
+
+L'estimation affichée est une prévision. Le calcul qui compte est fait par le programme
+au moment de l'ordre, en décimal exact, et c'est lui qui apparaît dans l'historique.
 
 ## 5. L'historique
 
@@ -92,11 +98,9 @@ argumentées, qu'on peut relire et critiquer après coup.
 
 ## 6. Les réglages
 
-**Sources de données** — l'état de chaque source, avec une pastille verte, grise ou rouge.
-Le bouton *Vérifier les sources maintenant* les interroge toutes.
-
-**Source privilégiée** — laquelle essayer en premier pour les cryptos et pour les actions.
-Les autres restent en repli derrière.
+**Sources de cours** — l'état de chaque source, avec une pastille verte quand elle a
+répondu, rouge quand elle a échoué — avec la raison — et grise tant qu'elle n'a pas
+servi. La liste est dans l'ordre d'essai.
 
 **Mode démonstration** — des cours générés localement, sans réseau. Pratique en classe.
 Ces cours sont signalés partout dans l'application.
@@ -108,8 +112,10 @@ votre compte Windows et ne quittent jamais la machine.
 Environ un homme sur douze distingue mal le vert du rouge ; sur un écran financier, c'est
 le signal le plus important qui devient illisible.
 
-**Vos parties** — le dossier des sauvegardes. C'est le même que lit le serveur MCP : c'est
-ce qui permet à une IA de jouer la partie que votre fenêtre affiche.
+**Rafraîchissement** — à quelle fréquence les cours sont relus.
+
+**Ouvrir le dossier des parties** — le dossier des sauvegardes. C'est le même que lit le
+serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtre affiche.
 
 ## Quelques idées de séances
 
