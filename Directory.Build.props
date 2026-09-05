@@ -13,7 +13,6 @@
     <Product>Safe Invest</Product>
     <Company>Safe Invest</Company>
     <Version>0.1.0</Version>
-    <NeutralLanguage>fr-FR</NeutralLanguage>
   </PropertyGroup>
 
   <!-- Windows-only projects (the WinUI app) cannot be restored or built on Linux CI.

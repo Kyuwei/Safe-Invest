@@ -20,7 +20,6 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <DefaultLanguage>fr-FR</DefaultLanguage>
     <!-- XAML-generated partial classes trip a few style analysers. -->
     <NoWarn>$(NoWarn);CA1852;CA1305;CA1304;CA1310;CA1720;CA1416</NoWarn>
   </PropertyGroup>
