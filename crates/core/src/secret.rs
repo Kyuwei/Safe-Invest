@@ -176,7 +176,14 @@ mod windows_dpapi {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "a failed unwrap is a failed test")]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unchecked_time_subtraction,
+    reason = "a test that trips is a test that failed"
+)]
 mod tests {
     use super::*;
 

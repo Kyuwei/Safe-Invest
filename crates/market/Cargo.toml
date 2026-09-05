@@ -1,7 +1,42 @@
 [package]
 name = "safe-invest-market"
+description = "Real market quotes for Safe Invest, with a fallback chain that never lies about its source."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
+safe-invest-core.workspace = true
+jiff.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "macros"] }
+tracing.workspace = true
+async-trait = "0.1.92"
+scraper = "0.27.0"
+sha2 = "0.11.0"
+
+# rustls, never OpenSSL: no system TLS library to keep patched, and the same
+# code path on the Windows build as on the Linux CI runner. The crypto provider
+# is `ring` rather than the default `aws-lc-rs` because ring ships pregenerated
+# assembly for windows-msvc and so needs no NASM on the build machine.
+[dependencies.reqwest]
+version = "0.13.4"
+default-features = false
+features = ["rustls-no-provider", "json", "http2", "charset", "gzip", "system-proxy"]
+
+[dependencies.rustls]
+version = "0.23.43"
+default-features = false
+features = ["ring", "std", "tls12", "logging"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util"] }
