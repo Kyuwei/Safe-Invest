@@ -3433,6 +3433,7 @@ dependencies = [
  "safe-invest-core",
  "safe-invest-market",
  "safe-invest-mcp",
+ "safe-invest-platform",
  "safe-invest-service",
  "serde",
  "serde_json",
@@ -3444,7 +3445,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3455,13 +3455,13 @@ dependencies = [
  "jiff",
  "notify",
  "rust_decimal",
+ "safe-invest-platform",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
  "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3502,6 +3502,14 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "safe-invest-platform"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.20",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -66,16 +66,17 @@ jobs:
       - name: Clippy (build console)
         run: cargo clippy --workspace --all-targets --locked --no-default-features
 
-      # The DPAPI code only exists on Windows, so a Linux clippy never sees it.
-      # Type-checking the core crate against the Windows target catches a
-      # mistake there in seconds instead of two minutes into the Windows job.
-      # It stops at `core` because everything above it pulls in `ring`, whose
-      # build script cannot cross-compile to MSVC.
-      - name: Vérifier le code Windows du noyau
+      # Every `unsafe` line and every Win32 signature lives in the platform
+      # crate, which depends on nothing but windows-sys. That is what lets a
+      # Linux runner type-check them: everything above it pulls in `ring`, whose
+      # build script cannot cross-compile to MSVC. Without this step a wrong
+      # Win32 import only surfaces minutes into the Windows job — which is how
+      # `LocalFree` and a missing `Win32_Security` feature were both found.
+      - name: Vérifier le code Windows
         run: |
           rustup target add x86_64-pc-windows-msvc
-          cargo clippy -p safe-invest-core --all-targets --locked \
-            --target x86_64-pc-windows-msvc
+          cargo clippy -p safe-invest-platform -p safe-invest-core --all-targets \
+            --locked --target x86_64-pc-windows-msvc
 
       - name: Tests
         run: cargo test --workspace --locked
@@ -158,19 +159,12 @@ jobs:
       - name: Compiler l'exécutable
         run: cargo build --release --locked
 
-      # A single file is the whole point; check that it is one, and that it runs.
+      # A single file is the whole point. This checks it is one, that it runs,
+      # and that MCP mode still works in the GUI-subsystem release build — the
+      # one configuration the Rust tests, which run in debug, never see.
       - name: Vérifier l'exécutable
         shell: pwsh
-        run: |
-          $exe = "target/release/safe-invest.exe"
-          if (-not (Test-Path $exe)) { throw "safe-invest.exe est introuvable" }
-          $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "safe-invest.exe : $size Mo"
-          if ($size -gt 40) { throw "l'exécutable a doublé de taille ($size Mo) — vérifier ce qui a été ajouté" }
-          & $exe --version
-          if ($LASTEXITCODE -ne 0) { throw "--version a échoué" }
-          & $exe doctor --data-dir "$env:RUNNER_TEMP\si" --demo
-          if ($LASTEXITCODE -ne 0) { throw "doctor a échoué" }
+        run: ./scripts/verify-windows-exe.ps1
 
       - uses: actions/upload-artifact@v7
         with:

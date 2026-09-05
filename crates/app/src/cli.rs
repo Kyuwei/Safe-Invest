@@ -8,6 +8,30 @@ use anyhow::Context as _;
 use safe_invest_service::{Context, ContextConfig};
 use std::path::PathBuf;
 
+/// Writes one line, ignoring a failure to do so.
+///
+/// `println!` panics when the write fails, and a GUI-subsystem process started
+/// without a console has no standard output to fail on. Under `panic = "abort"`
+/// that panic becomes a bare non-zero exit code with nothing printed — the
+/// worst possible way to report a version number, and how the release build
+/// first failed its own smoke test.
+pub fn write_line(mut sink: impl std::io::Write, text: &str) {
+    let _ = sink.write_all(text.as_bytes());
+    let _ = sink.write_all(b"\n");
+    let _ = sink.flush();
+}
+
+macro_rules! outln {
+    () => { $crate::cli::write_line(std::io::stdout(), "") };
+    ($($arg:tt)*) => { $crate::cli::write_line(std::io::stdout(), &format!($($arg)*)) };
+}
+
+macro_rules! errln {
+    ($($arg:tt)*) => { $crate::cli::write_line(std::io::stderr(), &format!($($arg)*)) };
+}
+
+pub(crate) use {errln, outln};
+
 pub const USAGE: &str = "\
 Safe Invest — simulateur d'investissement pédagogique.
 
@@ -118,19 +142,11 @@ pub fn init_logging(stderr_only: bool) {
 /// would print into the void; this buys it back for the console subcommands.
 /// Never called in MCP mode, where the client supplies its own pipes.
 pub fn attach_console() {
+    // Only the windowed release build starts without a console; every other
+    // configuration already has one.
     #[cfg(all(windows, feature = "gui", not(debug_assertions)))]
     {
-        #![allow(
-            unsafe_code,
-            reason = "AttachConsole is a C API with no safe wrapper in-tree"
-        )]
-        use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
-
-        // SAFETY: no arguments, no pointers; the call either attaches to the
-        // parent's console or reports that there is none.
-        unsafe {
-            AttachConsole(ATTACH_PARENT_PROCESS);
-        }
+        safe_invest_platform::console::attach();
     }
 }
 
@@ -141,34 +157,34 @@ pub fn attach_console() {
 /// directory, the webview and the configured sources turns "it does not work"
 /// into a sentence someone can act on.
 pub fn doctor(options: &Options) -> anyhow::Result<()> {
-    println!("Safe Invest {}", safe_invest_core::VERSION);
-    println!(
+    outln!("Safe Invest {}", safe_invest_core::VERSION);
+    outln!(
         "  système        : {} {}",
         std::env::consts::OS,
         std::env::consts::ARCH
     );
-    println!("  exécutable     : {}", executable_path());
+    outln!("  exécutable     : {}", executable_path());
 
-    println!();
-    println!("Interface graphique");
-    println!(
+    outln!();
+    outln!("Interface graphique");
+    outln!(
         "  incluse        : {}",
         if cfg!(feature = "gui") { "oui" } else { "non" }
     );
-    println!("  moteur web     : {}", webview_report());
+    outln!("  moteur web     : {}", webview_report());
 
     let context = build_context(options)?;
     let paths = context.store().paths();
-    println!();
-    println!("Données");
-    println!("  dossier        : {}", paths.root().display());
-    println!("  accessible     : {}", writable_report(paths.root()));
-    println!("  parties        : {}", context.list_games().len());
+    outln!();
+    outln!("Données");
+    outln!("  dossier        : {}", paths.root().display());
+    outln!("  accessible     : {}", writable_report(paths.root()));
+    outln!("  parties        : {}", context.list_games().len());
 
     let settings = context.settings();
-    println!();
-    println!("Sources de cours");
-    println!(
+    outln!();
+    outln!("Sources de cours");
+    outln!(
         "  mode           : {}",
         if settings.force_simulated_mode {
             "simulé (aucun appel réseau)"
@@ -176,11 +192,11 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
             "réel, avec repli simulé"
         }
     );
-    println!(
+    outln!(
         "  ordre crypto   : {}",
         settings.crypto_provider_order.join(" → ")
     );
-    println!(
+    outln!(
         "  ordre actions  : {}",
         settings.stock_provider_order.join(" → ")
     );
@@ -190,7 +206,7 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
         .into_iter()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
         .collect();
-    println!(
+    outln!(
         "  clés définies  : {}",
         if configured.is_empty() {
             "aucune (l'application fonctionne sans clé)".to_owned()

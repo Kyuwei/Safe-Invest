@@ -59,22 +59,12 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          $exe = "target/release/safe-invest.exe"
-          if (-not (Test-Path $exe)) { throw "safe-invest.exe est introuvable" }
-
-          & $exe --version
-          if ($LASTEXITCODE -ne 0) { throw "l'exécutable produit ne démarre pas" }
-
-          $size = [math]::Round((Get-Item $exe).Length / 1MB, 2)
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-          Write-Host "safe-invest.exe : $size Mo, SHA-256 $hash"
+          ./scripts/verify-windows-exe.ps1
 
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item $exe dist/safe-invest.exe
+          Copy-Item target/release/safe-invest.exe dist/safe-invest.exe
+          $hash = (Get-FileHash dist/safe-invest.exe -Algorithm SHA256).Hash.ToLower()
           "$hash *safe-invest.exe" | Out-File -Encoding ascii dist/safe-invest.exe.sha256
-
-          "size=$size" >> $env:GITHUB_OUTPUT
-          "sha256=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Rédiger les notes de version
         shell: pwsh

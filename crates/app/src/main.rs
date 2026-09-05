@@ -25,15 +25,15 @@ mod commands;
 #[cfg(feature = "gui")]
 mod gui;
 
-use cli::{Command, Options};
+use cli::{Command, Options, errln, outln};
 
 fn main() -> std::process::ExitCode {
     let (command, options) = match cli::parse(std::env::args().skip(1)) {
         Ok(parsed) => parsed,
         Err(message) => {
             cli::attach_console();
-            eprintln!("{message}\n");
-            eprintln!("{}", cli::USAGE);
+            errln!("{message}\n");
+            errln!("{}", cli::USAGE);
             return std::process::ExitCode::from(2);
         }
     };
@@ -42,7 +42,7 @@ fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             cli::attach_console();
-            eprintln!("Erreur : {error:#}");
+            errln!("Erreur : {error:#}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -52,12 +52,12 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
     match command {
         Command::Help => {
             cli::attach_console();
-            println!("{}", cli::USAGE);
+            outln!("{}", cli::USAGE);
             Ok(())
         }
         Command::Version => {
             cli::attach_console();
-            println!("Safe Invest {}", safe_invest_core::VERSION);
+            outln!("Safe Invest {}", safe_invest_core::VERSION);
             Ok(())
         }
         Command::Doctor => {

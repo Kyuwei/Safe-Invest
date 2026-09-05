@@ -26,6 +26,7 @@ gui = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener"]
 
 [dependencies]
 safe-invest-core.workspace = true
+safe-invest-platform.workspace = true
 safe-invest-market.workspace = true
 safe-invest-mcp.workspace = true
 safe-invest-service.workspace = true
@@ -41,8 +42,6 @@ uuid.workspace = true
 tauri = { version = "2.11.5", optional = true, default-features = false, features = ["wry", "common-controls-v6"] }
 tauri-plugin-opener = { version = "2.5.5", optional = true }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -31,24 +31,16 @@ impl Sealed {
 pub enum SecretError {
     #[error("format de secret non reconnu")]
     Malformed,
-    #[error(
-        "le déchiffrement a échoué : la clé a-t-elle été enregistrée par un autre compte Windows ?"
-    )]
-    Unprotect,
-    #[error("le chiffrement a échoué")]
-    Protect,
+    #[error(transparent)]
+    Platform(#[from] safe_invest_platform::secret::SecretError),
 }
 
 pub fn seal(plaintext: &str) -> Result<Sealed, SecretError> {
-    #[cfg(windows)]
-    {
-        let bytes = windows_dpapi::protect(plaintext.as_bytes())?;
-        Ok(Sealed(format!("dpapi:{}", to_hex(&bytes))))
+    if safe_invest_platform::secret::is_supported() {
+        let bytes = safe_invest_platform::secret::protect(plaintext.as_bytes())?;
+        return Ok(Sealed(format!("dpapi:{}", to_hex(&bytes))));
     }
-    #[cfg(not(windows))]
-    {
-        Ok(Sealed(format!("plain:{}", to_hex(plaintext.as_bytes()))))
-    }
+    Ok(Sealed(format!("plain:{}", to_hex(plaintext.as_bytes()))))
 }
 
 pub fn unseal(sealed: &Sealed) -> Result<String, SecretError> {
@@ -56,13 +48,10 @@ pub fn unseal(sealed: &Sealed) -> Result<String, SecretError> {
     let bytes = from_hex(payload)?;
     match scheme {
         "plain" => String::from_utf8(bytes).map_err(|_| SecretError::Malformed),
-        #[cfg(windows)]
         "dpapi" => {
-            let clear = windows_dpapi::unprotect(&bytes)?;
+            let clear = safe_invest_platform::secret::unprotect(&bytes)?;
             String::from_utf8(clear).map_err(|_| SecretError::Malformed)
         }
-        #[cfg(not(windows))]
-        "dpapi" => Err(SecretError::Unprotect),
         _ => Err(SecretError::Malformed),
     }
 }
@@ -87,92 +76,6 @@ fn from_hex(text: &str) -> Result<Vec<u8>, SecretError> {
             u8::from_str_radix(s, 16).map_err(|_| SecretError::Malformed)
         })
         .collect()
-}
-
-#[cfg(windows)]
-mod windows_dpapi {
-    //! The only `unsafe` in the crate. Both calls follow the same shape: hand
-    //! Windows a descriptor of our buffer, get one back, copy it out, free it.
-
-    #![allow(
-        unsafe_code,
-        reason = "DPAPI is a C API; there is no safe wrapper in-tree"
-    )]
-
-    use super::SecretError;
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{
-        CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
-    };
-
-    /// Binds the blob to this application, so a DPAPI blob sealed by another
-    /// program on the same account cannot be swapped in.
-    const ENTROPY: &[u8] = b"SafeInvest/api-keys/v1";
-
-    pub(super) fn protect(clear: &[u8]) -> Result<Vec<u8>, SecretError> {
-        call(clear, true).ok_or(SecretError::Protect)
-    }
-
-    pub(super) fn unprotect(sealed: &[u8]) -> Result<Vec<u8>, SecretError> {
-        call(sealed, false).ok_or(SecretError::Unprotect)
-    }
-
-    fn call(input: &[u8], encrypt: bool) -> Option<Vec<u8>> {
-        let mut in_blob = blob(input);
-        let mut entropy = blob(ENTROPY);
-        let mut out = CRYPT_INTEGER_BLOB {
-            cbData: 0,
-            pbData: std::ptr::null_mut(),
-        };
-
-        // SAFETY: `in_blob` and `entropy` describe live slices that outlive the
-        // call. Every optional pointer is null, which the API documents as
-        // "not supplied". On success Windows allocates `out.pbData` with
-        // LocalAlloc and we own it until the LocalFree below.
-        let ok = unsafe {
-            if encrypt {
-                CryptProtectData(
-                    &raw mut in_blob,
-                    std::ptr::null(),
-                    &raw mut entropy,
-                    std::ptr::null(),
-                    std::ptr::null(),
-                    0,
-                    &raw mut out,
-                )
-            } else {
-                CryptUnprotectData(
-                    &raw mut in_blob,
-                    std::ptr::null_mut(),
-                    &raw mut entropy,
-                    std::ptr::null(),
-                    std::ptr::null(),
-                    0,
-                    &raw mut out,
-                )
-            }
-        };
-
-        if ok == 0 || out.pbData.is_null() {
-            return None;
-        }
-
-        // SAFETY: Windows reported success, so `pbData` points at `cbData`
-        // initialised bytes.
-        let copied =
-            unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize) }.to_vec();
-        // SAFETY: `pbData` came from LocalAlloc inside the call above and is
-        // freed exactly once, here.
-        unsafe { LocalFree(out.pbData.cast()) };
-        Some(copied)
-    }
-
-    fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB {
-            cbData: u32::try_from(data.len()).unwrap_or(u32::MAX),
-            pbData: data.as_ptr().cast_mut(),
-        }
-    }
 }
 
 #[cfg(test)]

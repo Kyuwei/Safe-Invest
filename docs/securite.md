@@ -68,10 +68,19 @@ fonction qui construit les éléments refuse explicitement le HTML brut.
 
 ## Le code
 
-**`unsafe` sous surveillance.** Le lint `unsafe_code` est actif sur tout l'espace de
-travail. Il n'y a que deux blocs `unsafe` dans le projet, tous deux des appels à des API C
-de Windows — DPAPI et `AttachConsole` — chacun avec une autorisation nommée et un
-commentaire `SAFETY` qui dit pourquoi l'appel est correct.
+**Tout le code système au même endroit.** Le lint `unsafe_code` est actif sur tout
+l'espace de travail, et **chaque ligne `unsafe` du projet est dans le crate
+`safe-invest-platform`** : le scellement DPAPI d'une clé, et l'attachement à la console
+qui permet à un exécutable fenêtré de répondre à `--version` dans un terminal. Chacune
+porte une autorisation nommée et un commentaire `SAFETY` qui dit pourquoi l'appel est
+correct.
+
+Ce regroupement a une seconde vertu, pratique celle-là. Ce crate ne dépend que de
+`windows-sys`, donc il se vérifie pour la cible Windows depuis une machine Linux —
+tout le reste de l'espace de travail tire `ring`, dont le script de compilation ne sait
+pas viser MSVC en compilation croisée. La CI fait tourner cette vérification à chaque
+poussée. Elle a déjà attrapé trois erreurs de signature Win32 qui, sans elle, ne seraient
+apparues qu'après plusieurs minutes de compilation Windows.
 
 **Ni `unwrap`, ni `expect`, ni `panic`, ni indexation de tranche** dans le code hors
 tests : ces lints sont actifs pour tout l'espace de travail. Un cours absurde ressort
@@ -80,6 +89,13 @@ comme un ordre refusé, pas comme un plantage.
 **L'arithmétique monétaire est vérifiée.** Toute opération sur les montants passe par des
 fonctions qui renvoient une erreur en cas de dépassement, plutôt que de paniquer ou de
 tronquer.
+
+**Écrire sur une sortie impossible n'est pas une panique.** `println!` panique quand
+l'écriture échoue, et un exécutable en sous-système « windows » lancé sans terminal n'a
+pas de sortie standard. Sous `panic = "abort"`, cela donnait un code d'erreur muet.
+L'affichage passe maintenant par une fonction qui ignore l'échec, et des tests lancent le
+binaire avec sa sortie redirigée vers `/dev/full` — qui fait échouer toute écriture — pour
+vérifier que le code de retour reste juste.
 
 ## Les fichiers
 
