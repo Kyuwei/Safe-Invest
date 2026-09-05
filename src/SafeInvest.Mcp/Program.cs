@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -57,8 +58,17 @@ builder.Services
 
 await builder.Build().RunAsync().ConfigureAwait(false);
 
-/// <summary>Keeps the version reported to MCP clients in one place.</summary>
+/// <summary>
+/// The version reported to MCP clients, read from the assembly so a release build stamped
+/// with -p:Version does not have to be kept in sync by hand.
+/// </summary>
 internal static class ThisAssembly
 {
-    public const string Version = "0.1.0";
+    public static string Version { get; } =
+        typeof(ThisAssembly).Assembly
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            .Split('+')[0]
+        ?? typeof(ThisAssembly).Assembly.GetName().Version?.ToString(3)
+        ?? "0.0.0";
 }

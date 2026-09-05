@@ -1,0 +1,117 @@
+name: Release
+
+# Publie une version de Safe Invest : compile l'application et le serveur MCP sous
+# Windows, puis attache les archives à une release GitHub.
+#
+# Deux façons de déclencher :
+#   - pousser une étiquette « v… » sur main    (git tag v0.1.0 && git push origin v0.1.0)
+#   - lancer le workflow à la main depuis l'onglet Actions, en saisissant la version
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version à publier, par exemple 0.1.0"
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_CLI_UI_LANGUAGE: en-US
+  VSLANG: "1033"
+
+jobs:
+  release:
+    name: Compiler et publier
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Déterminer la version
+        id: version
+        shell: pwsh
+        run: |
+          # Une étiquette « v0.1.0 » donne la version 0.1.0 ; un lancement manuel prend
+          # la valeur saisie.
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            $version = '${{ inputs.version }}'
+          }
+          if (-not $version) { throw "Version indéterminable." }
+          Write-Host "Version : $version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=v$version"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Vérifier les tests
+        run: |
+          dotnet test tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release
+          dotnet test tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release
+
+      - name: Compiler l'application (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish/SafeInvest
+
+      - name: Compiler le serveur MCP (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish/SafeInvest-MCP
+
+      - name: Vérifier que l'exécutable est bien là
+        shell: pwsh
+        run: |
+          # Une application WinUI 3 non empaquetée est un dossier, pas un exécutable
+          # unique : SafeInvest.exe a besoin du runtime Windows App SDK à côté de lui.
+          $exe = "publish/SafeInvest/SafeInvest.exe"
+          if (-not (Test-Path $exe)) { throw "SafeInvest.exe introuvable dans la publication." }
+          $size = [math]::Round((Get-ChildItem publish/SafeInvest -Recurse |
+                                 Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "SafeInvest.exe présent ; dossier de $size Mo."
+
+      - name: Créer les archives
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path publish/SafeInvest/*     -DestinationPath "artifacts/SafeInvest-$version-win-x64.zip"
+          Compress-Archive -Path publish/SafeInvest-MCP/* -DestinationPath "artifacts/SafeInvest-MCP-$version-win-x64.zip"
+          Get-ChildItem artifacts | ForEach-Object {
+            Write-Host ("{0}  {1} Mo" -f $_.Name, [math]::Round($_.Length / 1MB, 1))
+          }
+
+      - name: Publier la release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $tag     = "${{ steps.version.outputs.tag }}"
+
+          # Les notes vivent dans un gabarit versionné plutôt qu'en dur ici : plus simple
+          # à relire, et modifiable sans toucher au workflow.
+          (Get-Content .github/release-notes-template.md -Raw).Replace('{VERSION}', $version) |
+            Out-File -FilePath release-notes.md -Encoding utf8
+
+          gh release create $tag `
+            "artifacts/SafeInvest-$version-win-x64.zip" `
+            "artifacts/SafeInvest-MCP-$version-win-x64.zip" `
+            --title "Safe Invest $version" `
+            --notes-file release-notes.md `
+            --target main

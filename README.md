@@ -120,6 +120,21 @@ membres que le compilateur XAML aurait générés et vérifie tout le C# de l'ap
 une trentaine de secondes, sans Windows. Le XAML lui-même — balisage, chemins de binding,
 ressources manquantes — reste vérifié par la CI Windows.
 
+### Publier une version
+
+Le workflow `Release` compile l'application et le serveur MCP sous Windows, puis attache
+les archives à une release GitHub. Deux façons de le déclencher :
+
+```bash
+# par étiquette
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+ou, depuis l'onglet **Actions** de GitHub, lancer **Release** à la main en saisissant la
+version. Les notes de version se modifient dans
+[`.github/release-notes-template.md`](.github/release-notes-template.md) — `{VERSION}` y
+est remplacé au moment de la publication.
+
 ### Si la compilation Windows échoue avec `WMC9999`
 
 `dotnet build` exécute le compilateur XAML dans un processus séparé qui n'arrive pas à
