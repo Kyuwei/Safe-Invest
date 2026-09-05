@@ -13,9 +13,17 @@
 /// attach to the parent's console, then open the console device and install it
 /// as the standard handles. Attaching alone leaves them null.
 ///
-/// Returns `true` when there is now a console to write to. A caller that gets
-/// `false` — launched from Explorer, say — has nowhere to print and should not
-/// try; the output helpers swallow the failure either way.
+/// It leaves a *redirected* handle alone. A slot pointing at a file or a pipe
+/// was set up by whoever started the process — `> log.txt`, a shell's `|`, an
+/// MCP client's stdio — and installing the console device over it throws that
+/// output away without a word. That is not hypothetical: it is how
+/// `safe-invest.exe --version`, redirected to a file by the release check, came
+/// back with an exit code of zero and an empty file. A console handle, or no
+/// handle at all, is ours to replace.
+///
+/// Returns `true` when there is somewhere to write. A caller that gets `false`
+/// — launched from Explorer, say — has nowhere to print and should not try; the
+/// output helpers swallow the failure either way.
 pub fn attach() -> bool {
     #[cfg(windows)]
     {
@@ -37,23 +45,48 @@ mod windows {
 
     use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_DISK, FILE_TYPE_PIPE,
+        GetFileType, OPEN_EXISTING,
     };
     use windows_sys::Win32::System::Console::{
-        ATTACH_PARENT_PROCESS, AttachConsole, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE,
-        STD_OUTPUT_HANDLE, SetStdHandle,
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_HANDLE,
+        STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
     };
 
     pub(super) fn attach() -> bool {
+        // Attaching is cheap and harmless — it simply fails when there is no
+        // parent console — and it is what makes `CONOUT$` openable below.
         // SAFETY: no pointers. The call either attaches this process to the
         // console of whatever launched it, or reports that there is none.
-        if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } == 0 {
-            return false;
-        }
+        unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
 
-        adopt("CONOUT$", STD_OUTPUT_HANDLE, Access::Write)
-            && adopt("CONOUT$", STD_ERROR_HANDLE, Access::Write)
-            && adopt("CONIN$", STD_INPUT_HANDLE, Access::Read)
+        let out = keep_or_adopt(STD_OUTPUT_HANDLE, "CONOUT$", Access::Write);
+        keep_or_adopt(STD_ERROR_HANDLE, "CONOUT$", Access::Write);
+        keep_or_adopt(STD_INPUT_HANDLE, "CONIN$", Access::Read);
+        out
+    }
+
+    /// Keeps a redirected handle; installs the console device otherwise.
+    fn keep_or_adopt(slot: STD_HANDLE, device: &str, access: Access) -> bool {
+        is_redirected(slot) || adopt(device, slot, access)
+    }
+
+    /// Whether this slot points at a file or a pipe rather than a console.
+    ///
+    /// This is the distinction that matters: a file or a pipe is somebody
+    /// else's arrangement and must survive untouched, while a console handle —
+    /// or an empty slot — is ours to replace, and after `AttachConsole` our own
+    /// `CONOUT$` is the one that reliably works.
+    fn is_redirected(slot: STD_HANDLE) -> bool {
+        // SAFETY: no pointers. `GetStdHandle` returns a handle or a sentinel,
+        // and `GetFileType` only reads the handle it is given.
+        unsafe {
+            let handle = GetStdHandle(slot);
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                return false;
+            }
+            matches!(GetFileType(handle), FILE_TYPE_DISK | FILE_TYPE_PIPE)
+        }
     }
 
     #[derive(Clone, Copy)]
