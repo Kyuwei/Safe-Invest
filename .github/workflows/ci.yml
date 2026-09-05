@@ -48,6 +48,18 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
+      # Two files carry the version. A release refuses to publish when they
+      # disagree, but that is late to find out.
+      - name: Version cohérente
+        run: |
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          tauri=$(grep -m1 '"version"' crates/app/tauri.conf.json | cut -d'"' -f4)
+          echo "Cargo.toml $crate / tauri.conf.json $tauri"
+          test "$crate" = "$tauri" || {
+            echo "::error::Cargo.toml annonce $crate et tauri.conf.json $tauri"
+            exit 1
+          }
+
       - name: Clippy (avec interface)
         run: cargo clippy --workspace --all-targets --locked
 
