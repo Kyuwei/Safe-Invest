@@ -84,6 +84,11 @@ pub fn create(request: NewGame, now: Timestamp) -> Result<GameSession, NewGameEr
         cash: starting_cash,
         holdings: Vec::new(),
         trades: Vec::new(),
+        // The curve starts where the game starts, so day one is not a blank chart.
+        value_history: vec![crate::model::ValuePoint {
+            at: now,
+            total_value: starting_cash,
+        }],
         goal,
         fee_percent,
         created_at: now,

@@ -20,7 +20,7 @@ pub mod watcher;
 pub use engine::{TradeAmount, TradeError};
 pub use model::{
     Asset, AssetKind, GameSession, GameSummary, Goal, GoalProgress, GoalStatus, Holding,
-    PlayerKind, PortfolioSnapshot, PositionView, Quote, Trade, TradeSide,
+    PlayerKind, PortfolioSnapshot, PositionView, Quote, Trade, TradeSide, ValuePoint,
 };
 pub use paths::Paths;
 pub use store::{GameStore, StoreError};

@@ -62,6 +62,11 @@ signal.
 - **Investi** — ce que valent aujourd'hui vos positions
 - **Gains déjà encaissés** — le résultat des ventes déjà faites, définitivement acquis
 
+**La courbe** apparaît sous les chiffres dès qu'il y a de quoi tracer une ligne. Elle est
+enregistrée au fil des relevés — un point tous les quarts d'heure, un mois d'historique —
+et non reconstruite après coup : une courbe reconstruite devrait deviner des cours que
+personne n'a notés.
+
 **L'anneau d'objectif** montre le chemin parcouru depuis le capital de départ, le temps
 restant, et le rendement annuel encore nécessaire.
 
@@ -81,7 +86,12 @@ Sans rien taper, l'application propose une sélection d'actifs connus.
 Chaque ligne montre le cours, la variation sur 24 heures en vert ou en rouge, et la
 mention « simulé » quand le chiffre ne vient pas d'une vraie source.
 
-Le bouton **Acheter** ouvre une fiche qui rappelle le cours et propose deux façons de
+Le bouton **Détails** ouvre la fiche de l'actif : le cours, sa variation du jour, la
+courbe des trente derniers jours avec le mouvement sur la période, ce que vous en détenez
+déjà, et **une phrase sur ce qu'est ce type d'actif**. C'est le moment où quelqu'un est le
+plus disposé à la lire : juste avant d'acheter.
+
+De là, le bouton **Acheter** ouvre une fiche qui rappelle le cours et propose deux façons de
 dimensionner l'ordre :
 
 - **pour un montant** — « 3 000 € » ; la fiche répond aussitôt *« soit environ

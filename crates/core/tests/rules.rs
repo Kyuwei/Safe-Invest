@@ -729,3 +729,64 @@ fn annualised_return_matches_a_hand_computed_case() {
     let rate = goal::annualised(d("1000"), d("1210"), 2.0).unwrap();
     assert_eq!(rate, d("10.00"));
 }
+
+// -------------------------------------------------------- value history
+
+#[test]
+fn the_curve_starts_where_the_game_starts() {
+    let session = game(PlayerKind::Human, "10000", "0");
+    assert_eq!(
+        session.value_history.len(),
+        1,
+        "le premier jour ne doit pas être une page blanche"
+    );
+    assert_eq!(session.value_history[0].total_value, d("10000"));
+}
+
+#[test]
+fn readings_are_kept_at_most_once_a_quarter_hour() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let start = now();
+
+    // Offered a minute later: too soon, nothing kept.
+    assert!(!session.record_value(start + jiff::Span::new().minutes(1), d("10500")));
+    assert_eq!(session.value_history.len(), 1);
+
+    // Offered a quarter of an hour later: kept.
+    assert!(session.record_value(start + jiff::Span::new().minutes(15), d("10500")));
+    assert_eq!(session.value_history.len(), 2);
+    assert_eq!(session.value_history[1].total_value, d("10500"));
+}
+
+#[test]
+fn the_history_does_not_grow_without_bound() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let start = now();
+
+    // Far more readings than the cap, each well past the interval.
+    for step in 1..=(GameSession::MAX_VALUE_POINTS + 50) {
+        let at = start + jiff::Span::new().minutes(i64::try_from(step).unwrap() * 20);
+        assert!(session.record_value(at, d("10000")));
+    }
+
+    assert_eq!(session.value_history.len(), GameSession::MAX_VALUE_POINTS);
+    // The oldest go, not the newest: a curve must end at the present.
+    let last = session.value_history.last().unwrap().at;
+    assert!(last > start, "le relevé le plus récent doit être conservé");
+}
+
+#[test]
+fn a_reading_offered_out_of_order_is_refused_rather_than_scrambling_the_curve() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let start = now();
+    session.record_value(start + jiff::Span::new().hours(1), d("11000"));
+
+    assert!(
+        !session.record_value(start + jiff::Span::new().minutes(30), d("9000")),
+        "un relevé antérieur au dernier ne doit pas être inséré"
+    );
+    assert!(
+        session.value_history.windows(2).all(|w| w[0].at <= w[1].at),
+        "la courbe doit rester ordonnée dans le temps"
+    );
+}

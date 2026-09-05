@@ -52,6 +52,7 @@ export const api = {
   dashboard: () => call("dashboard"),
   history: (limit) => call("history", { limit: limit ?? null }),
   market: (query, kind) => call("market", { query, kind }),
+  asset: (symbol, kind, days) => call("asset", { symbol, kind, days: days ?? null }),
   priceHistory: (symbol, kind, days) => call("price_history", { symbol, kind, days }),
 
   buy: (args) => call("buy", { args }),

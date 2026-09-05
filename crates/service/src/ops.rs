@@ -94,6 +94,21 @@ pub struct SellRequest {
     pub rationale: Option<String>,
 }
 
+/// Everything the asset screen shows: the price, its recent shape, and what
+/// the player already holds of it.
+#[derive(Debug, Clone)]
+pub struct AssetReport {
+    pub asset: Asset,
+    pub quote: Option<Quote>,
+    pub history: Vec<PricePoint>,
+    pub history_days: u16,
+    pub position: Option<safe_invest_core::model::Holding>,
+    pub currency: String,
+    pub cash: Decimal,
+    pub fee_percent: Decimal,
+    pub observer_mode: bool,
+}
+
 /// A portfolio, its goal, and the quotes it was valued with.
 #[derive(Debug, Clone)]
 pub struct PortfolioReport {
@@ -219,6 +234,22 @@ impl Context {
         let snapshot = valuation::snapshot(&session, &quotes, now);
         let goal = goal::evaluate(&session, &snapshot, now);
 
+        // The curve is recorded as the portfolio is valued, never reconstructed
+        // afterwards: a reconstruction would have to invent prices nobody wrote
+        // down. `record_value` keeps at most one reading a quarter-hour, and the
+        // save file is only rewritten when it actually kept one.
+        let mut session = session;
+        let recorded = self
+            .store()
+            .mutate_if(session.id, |stored| {
+                let kept = stored.record_value(now, snapshot.total_value);
+                Ok::<_, ServiceError>((kept.then(|| stored.value_history.clone()), kept))
+            })
+            .unwrap_or(None);
+        if let Some(history) = recorded {
+            session.value_history = history;
+        }
+
         Ok(PortfolioReport {
             session,
             snapshot,
@@ -263,6 +294,43 @@ impl Context {
 
     pub async fn price_history(&self, asset: &Asset, days: u16, currency: &str) -> Vec<PricePoint> {
         self.market().await.history(asset, days, currency).await
+    }
+
+    /// Everything needed to draw one asset's page.
+    pub async fn asset_report(
+        &self,
+        kind: AssetKind,
+        symbol: &str,
+        days: u16,
+    ) -> ServiceResult<AssetReport> {
+        let asset = self.resolve_asset(kind, symbol)?;
+        let session = self.load_game(None).ok();
+
+        let currency = session
+            .as_ref()
+            .map_or_else(|| self.settings().default_currency, |g| g.currency.clone());
+
+        let market = self.market().await;
+        let quotes = market
+            .quotes(std::slice::from_ref(&asset), &currency)
+            .await
+            .quotes;
+        let days = days.clamp(1, 365);
+        let history = market.history(&asset, days, &currency).await;
+
+        Ok(AssetReport {
+            history_days: days,
+            position: session
+                .as_ref()
+                .and_then(|g| g.find_holding(kind, &asset.symbol).cloned()),
+            cash: session.as_ref().map_or(Decimal::ZERO, |g| g.cash),
+            fee_percent: session.as_ref().map_or(Decimal::ZERO, |g| g.fee_percent),
+            observer_mode: session.is_some_and(|g| g.player_kind == PlayerKind::Ai),
+            quote: quotes.get(&asset.key()).cloned(),
+            asset,
+            history,
+            currency,
+        })
     }
 
     pub async fn market_sources(&self) -> Vec<ProviderStatus> {

@@ -12,7 +12,7 @@
 
 use safe_invest_core::model::{AssetKind, PlayerKind};
 use safe_invest_core::settings::AppSettings;
-use safe_invest_service::view::{DashboardView, MarketRow, TradeRow};
+use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
 use safe_invest_service::{
     BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, SetGoalRequest, TradeSizing,
     view,
@@ -280,6 +280,21 @@ pub async fn market(
         .iter()
         .map(|asset| view::market_row(asset, quotes.get(&asset.key()), &currency))
         .collect())
+}
+
+/// One asset's page: price, recent shape, what is already held, and a sentence
+/// on what this kind of asset even is.
+#[tauri::command]
+pub async fn asset(
+    context: tauri::State<'_, Context>,
+    symbol: String,
+    kind: String,
+    days: Option<u16>,
+) -> Answer<AssetView> {
+    let report = context
+        .asset_report(parse_kind(&kind)?, &symbol, days.unwrap_or(30))
+        .await?;
+    Ok(view::asset_view(&report))
 }
 
 #[derive(Debug, Serialize)]

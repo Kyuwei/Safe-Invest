@@ -178,6 +178,15 @@
             </div>
           </div>
 
+          <figure class="curve" id="value-curve" hidden>
+            <figcaption id="curve-caption"></figcaption>
+            <svg viewBox="0 0 600 90" preserveAspectRatio="none" role="img"
+                 aria-labelledby="curve-caption">
+              <path class="curve-area" id="curve-area" d="" />
+              <path class="curve-line" id="curve-line" d="" />
+            </svg>
+          </figure>
+
           <p class="source-note" id="source-note"></p>
           <div class="goal-detail" id="goal-detail" hidden></div>
 
@@ -285,6 +294,37 @@
           <button type="submit" class="primary" id="trade-confirm">Confirmer</button>
         </menu>
       </form>
+    </dialog>
+
+    <dialog id="asset-dialog" class="dialog dialog-wide">
+      <header class="asset-head">
+        <div>
+          <h2 id="asset-symbol">—</h2>
+          <p class="asset-name" id="asset-name"></p>
+        </div>
+        <div class="asset-price">
+          <strong id="asset-price">—</strong>
+          <span id="asset-change"></span>
+        </div>
+      </header>
+
+      <figure class="curve curve-tall">
+        <figcaption id="asset-caption"></figcaption>
+        <svg viewBox="0 0 600 140" preserveAspectRatio="none" role="img"
+             aria-labelledby="asset-caption">
+          <path class="curve-area" id="asset-area" d="" />
+          <path class="curve-line" id="asset-line" d="" />
+        </svg>
+      </figure>
+
+      <p class="asset-primer" id="asset-primer"></p>
+      <dl class="asset-facts" id="asset-facts"></dl>
+
+      <menu class="dialog-actions">
+        <button type="button" class="ghost" id="asset-close">Fermer</button>
+        <button type="button" class="ghost" id="asset-sell" hidden>Vendre</button>
+        <button type="button" class="primary" id="asset-buy">Acheter</button>
+      </menu>
     </dialog>
 
     <dialog id="how-dialog" class="dialog">

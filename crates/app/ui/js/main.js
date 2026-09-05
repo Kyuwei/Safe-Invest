@@ -6,12 +6,14 @@ import { AppError, api, onGameChanged } from "./api.js";
 import { $, $$, reportError, toast } from "./ui.js";
 import * as screens from "./screens.js";
 import { goalPreview } from "./goal.js";
+import { areaPath, direction as curveDirection, linePath } from "./sparkline.js";
 
 const state = {
   screen: "home",
   tab: "dashboard",
   dashboard: null,
   marketKind: "all",
+  asset: null,
   refreshSeconds: 60,
   timer: 0,
 };
@@ -23,6 +25,7 @@ async function boot() {
   bindNewGameForm();
   bindMarket();
   bindTradeDialog();
+  bindAssetDialog();
   bindSettings();
 
   const info = await api.appInfo().catch(() => null);
@@ -191,7 +194,11 @@ async function refreshGame({ quiet = false } = {}) {
   try {
     const view = await api.dashboard();
     state.dashboard = view;
-    screens.renderDashboard(view, { onBuy: openBuy, onSell: openSell });
+    screens.renderDashboard(view, {
+      onBuy: openBuy,
+      onSell: openSell,
+      onOpen: (position) => openAsset(position.symbol, position.kind),
+    });
 
     if (view.observerMode) {
       const trades = await api.history(5);
@@ -250,10 +257,7 @@ function bindMarket() {
 async function loadMarket() {
   try {
     const rows = await api.market($("#market-search").value, state.marketKind);
-    screens.renderMarket(rows, {
-      readOnly: Boolean(state.dashboard?.observerMode),
-      onBuy: (row) => openTrade("buy", row),
-    });
+    screens.renderMarket(rows, { onOpen: (row) => openAsset(row.symbol, row.kind) });
   } catch (error) {
     reportError(error);
   }
@@ -262,6 +266,87 @@ async function loadMarket() {
 /* ------------------------------------------------------- trade dialog */
 
 const trade = { side: "buy", mode: "amount", asset: null };
+
+/* ---------------------------------------------------------- asset sheet */
+
+/**
+ * Opens one asset's page: its price, the shape of the last month, what is
+ * already held, and a sentence on what this kind of asset even is.
+ */
+async function openAsset(symbol, kind) {
+  const dialog = $("#asset-dialog");
+  try {
+    const view = await api.asset(symbol, kind, 30);
+    state.asset = view;
+
+    $("#asset-symbol").textContent = view.symbol;
+    $("#asset-name").textContent = `${view.name} · ${view.kindLabel}`;
+    $("#asset-price").textContent = view.price ?? "cours indisponible";
+
+    const change = $("#asset-change");
+    change.textContent = view.changePercent24h ?? "";
+    change.className = screens.toneClass(view.direction);
+
+    drawAssetCurve(view);
+
+    $("#asset-primer").textContent = view.primer;
+    screens.renderAssetFacts(view);
+
+    // In an AI game the window watches; offering the buttons would be a lie.
+    $("#asset-buy").hidden = view.observerMode;
+    $("#asset-sell").hidden = view.observerMode || !view.heldQuantity;
+
+    dialog.showModal();
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+function drawAssetCurve(view) {
+  const points = Array.isArray(view.history) ? view.history : [];
+  const figure = $("#asset-dialog .curve");
+  const way = curveDirection(points);
+
+  figure.classList.toggle("is-up", way > 0);
+  figure.classList.toggle("is-down", way < 0);
+  $("#asset-line").setAttribute("d", linePath(points, 600, 140));
+  $("#asset-area").setAttribute("d", areaPath(points, 600, 140));
+
+  $("#asset-caption").textContent =
+    points.length < 2
+      ? "Pas d'historique disponible pour cet actif."
+      : `Cours sur ${view.historyDays} jours` +
+        (view.periodChange ? ` · ${view.periodChange} sur la période.` : ".");
+}
+
+function bindAssetDialog() {
+  $("#asset-close").addEventListener("click", () => $("#asset-dialog").close());
+
+  $("#asset-buy").addEventListener("click", () => {
+    const view = state.asset;
+    $("#asset-dialog").close();
+    openTrade("buy", {
+      symbol: view.symbol,
+      name: view.name,
+      kind: view.kind,
+      price: view.price,
+      priceRaw: view.priceRaw,
+    });
+  });
+
+  $("#asset-sell").addEventListener("click", () => {
+    const view = state.asset;
+    $("#asset-dialog").close();
+    openTrade("sell", {
+      symbol: view.symbol,
+      name: view.name,
+      kind: view.kind,
+      price: view.price,
+      priceRaw: view.priceRaw,
+      quantity: view.heldQuantity,
+    });
+  });
+}
 
 function openBuy(position) {
   openTrade("buy", {

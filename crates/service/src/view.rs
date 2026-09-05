@@ -43,6 +43,9 @@ pub struct DashboardView {
 
     pub positions: Vec<PositionCard>,
     pub goal: Option<GoalView>,
+    /// The portfolio's value over time, oldest first, for the dashboard curve.
+    /// Empty until the game has been open long enough to record a second point.
+    pub value_history: Vec<f64>,
 
     /// Sources behind the numbers on screen, so the badge can name them.
     pub sources: Vec<String>,
@@ -112,6 +115,38 @@ pub struct TradeRow {
     pub was_simulated: bool,
 }
 
+/// One asset's page: the price, its recent shape, and what is already held.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetView {
+    pub symbol: String,
+    pub name: String,
+    pub kind: String,
+    pub kind_label: String,
+    pub price: Option<String>,
+    pub price_raw: Option<f64>,
+    pub change_percent_24h: Option<String>,
+    pub direction: Direction,
+    pub source_id: Option<String>,
+    pub is_simulated: bool,
+    pub quoted_at: Option<String>,
+    /// Daily closes, oldest first.
+    pub history: Vec<f64>,
+    pub history_days: u16,
+    /// The move over the window the history covers.
+    pub period_change: Option<String>,
+    pub period_direction: Direction,
+    pub currency: String,
+    pub cash: String,
+    pub fee_percent: String,
+    pub held_quantity: Option<String>,
+    pub held_value: Option<String>,
+    pub held_average_cost: Option<String>,
+    pub observer_mode: bool,
+    /// A sentence explaining what this kind of asset is, for someone learning.
+    pub primer: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketRow {
@@ -164,6 +199,11 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
             .map(|p| position(p, currency))
             .collect(),
         goal: report.goal.as_ref().map(|g| goal(g, currency)),
+        value_history: session
+            .value_history
+            .iter()
+            .map(|point| to_f64(point.total_value))
+            .collect(),
 
         sources,
         contains_simulated_prices: snapshot.contains_simulated_prices,
@@ -240,6 +280,99 @@ pub fn trade(trade: &Trade, currency: &str) -> TradeRow {
         by_ai: trade.actor_kind == PlayerKind::Ai,
         source_id: trade.quote_source_id.clone(),
         was_simulated: trade.quote_was_simulated,
+    }
+}
+
+pub fn asset_view(report: &crate::ops::AssetReport) -> AssetView {
+    use rust_decimal::prelude::ToPrimitive;
+
+    let currency = &report.currency;
+    let quote = report.quote.as_ref();
+    let history: Vec<f64> = report
+        .history
+        .iter()
+        .filter_map(|p| p.price.to_f64())
+        .collect();
+
+    // The move across the whole window, computed from the ends of the curve
+    // that is actually drawn — so the figure and the shape always agree.
+    let period = match (history.first(), history.last()) {
+        (Some(first), Some(last)) if *first > 0.0 => Some((last - first) / first * 100.0),
+        _ => None,
+    };
+
+    AssetView {
+        symbol: report.asset.symbol.clone(),
+        name: report.asset.name.clone(),
+        kind: report.asset.kind.as_str().to_owned(),
+        kind_label: kind_label(report.asset.kind).to_owned(),
+        price: quote.map(|q| money(q.price, currency)),
+        price_raw: quote.and_then(|q| q.price.to_f64()),
+        change_percent_24h: quote.and_then(|q| q.change_percent_24h).map(signed_percent),
+        direction: quote.map_or(0, Quote::direction),
+        source_id: quote.map(|q| q.source_id.clone()),
+        is_simulated: quote.is_some_and(|q| q.is_simulated),
+        quoted_at: quote.map(|q| datetime(q.as_of)),
+        history,
+        history_days: report.history_days,
+        period_change: period.map(|p| {
+            let sign = if p > 0.0 { "+" } else { "" };
+            format!("{sign}{p:.2} %").replace('.', ",")
+        }),
+        period_direction: match period {
+            Some(p) if p > 0.0 => 1,
+            Some(p) if p < 0.0 => -1,
+            _ => 0,
+        },
+        currency: currency.clone(),
+        cash: money(report.cash, currency),
+        fee_percent: format!("{} %", report.fee_percent.normalize()),
+        held_quantity: report.position.as_ref().map(|h| quantity(h.quantity)),
+        held_value: report.position.as_ref().and_then(|h| {
+            quote.map(|q| money(crate::view::held_value(h.quantity, q.price), currency))
+        }),
+        held_average_cost: report
+            .position
+            .as_ref()
+            .map(|h| money(h.average_cost, currency)),
+        observer_mode: report.observer_mode,
+        primer: primer_for(report.asset.kind).to_owned(),
+    }
+}
+
+fn held_value(quantity: Decimal, price: Decimal) -> Decimal {
+    quantity.checked_mul(price).unwrap_or(Decimal::ZERO)
+}
+
+fn kind_label(kind: safe_invest_core::model::AssetKind) -> &'static str {
+    use safe_invest_core::model::AssetKind;
+    match kind {
+        AssetKind::Crypto => "Cryptomonnaie",
+        AssetKind::Stock => "Action",
+        AssetKind::Etf => "ETF",
+    }
+}
+
+/// One sentence on what this kind of asset actually is.
+///
+/// The point of the whole program is that someone leaves knowing more than they
+/// arrived with, and the moment they are about to buy something is the moment
+/// they are most likely to read it.
+fn primer_for(kind: safe_invest_core::model::AssetKind) -> &'static str {
+    use safe_invest_core::model::AssetKind;
+    match kind {
+        AssetKind::Crypto => {
+            "Une cryptomonnaie n'a ni chiffre d'affaires ni bénéfices : son cours ne tient \
+             qu'à ce que d'autres acceptent de payer. C'est ce qui la rend très volatile."
+        }
+        AssetKind::Stock => {
+            "Une action est une part d'entreprise. Sa valeur suit les résultats de \
+             l'entreprise, mais aussi ce que le marché anticipe de son avenir."
+        }
+        AssetKind::Etf => {
+            "Un ETF contient des centaines d'entreprises d'un coup. Une seule ligne suffit \
+             donc à être diversifié — c'est le placement le plus simple à comprendre."
+        }
     }
 }
 

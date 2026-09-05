@@ -101,6 +101,24 @@ impl GameStore {
     where
         E: From<StoreError>,
     {
+        self.mutate_if(id, |session| change(session).map(|outcome| (outcome, true)))
+    }
+
+    /// The same, but the change decides whether the file is written.
+    ///
+    /// The closure returns its outcome and whether anything actually changed.
+    /// The portfolio curve needs this: it is offered a reading every time the
+    /// dashboard refreshes but keeps one every quarter of an hour, and
+    /// rewriting the save on every refresh to store nothing would be a needless
+    /// write a minute, forever.
+    pub fn mutate_if<T, E>(
+        &self,
+        id: Uuid,
+        change: impl FnOnce(&mut GameSession) -> Result<(T, bool), E>,
+    ) -> Result<T, E>
+    where
+        E: From<StoreError>,
+    {
         let _guard = self.lock().map_err(StoreError::from).map_err(E::from)?;
 
         let path = self.paths.game_file(id);
@@ -109,8 +127,10 @@ impl GameStore {
         }
         let mut session = read_session(&path).map_err(E::from)?;
 
-        let outcome = change(&mut session)?;
-        self.save_locked(&session).map_err(E::from)?;
+        let (outcome, changed) = change(&mut session)?;
+        if changed {
+            self.save_locked(&session).map_err(E::from)?;
+        }
         Ok(outcome)
     }
 

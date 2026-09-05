@@ -229,6 +229,19 @@ pub struct Trade {
     pub quote_was_simulated: bool,
 }
 
+/// One reading of what the whole portfolio was worth.
+///
+/// The dashboard draws a curve from these. They are recorded by the app as it
+/// values the portfolio rather than reconstructed afterwards, because a
+/// reconstruction would have to guess at prices nobody wrote down — and a made-up
+/// curve is exactly the kind of thing this program must not draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValuePoint {
+    pub at: Timestamp,
+    pub total_value: Decimal,
+}
+
 /// A target amount and the date it has to be reached by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -252,6 +265,10 @@ pub struct GameSession {
     pub holdings: Vec<Holding>,
     #[serde(default)]
     pub trades: Vec<Trade>,
+    /// What the portfolio was worth, over time. Appended by the app; see
+    /// [`GameSession::record_value`].
+    #[serde(default)]
+    pub value_history: Vec<ValuePoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<Goal>,
     #[serde(default)]
@@ -265,6 +282,12 @@ pub struct GameSession {
 impl GameSession {
     pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
+    /// Fifteen minutes between readings.
+    pub const VALUE_INTERVAL_SECONDS: i64 = 15 * 60;
+
+    /// Roughly a month of readings at that interval.
+    pub const MAX_VALUE_POINTS: usize = 2880;
+
     fn current_schema_version() -> u32 {
         Self::CURRENT_SCHEMA_VERSION
     }
@@ -275,6 +298,29 @@ impl GameSession {
             .iter()
             .filter_map(|t| t.realized_pnl)
             .fold(Decimal::ZERO, |acc, v| acc.checked_add(v).unwrap_or(acc))
+    }
+
+    /// Records what the portfolio is worth, if enough time has passed.
+    ///
+    /// Returns whether anything was added, so a caller can avoid writing the
+    /// save file for nothing. Two rules keep the file from growing without
+    /// bound: at most one reading per [`Self::VALUE_INTERVAL_SECONDS`], and the
+    /// oldest are dropped past [`Self::MAX_VALUE_POINTS`] — a month of readings
+    /// at a quarter-hour each.
+    pub fn record_value(&mut self, at: Timestamp, total_value: Decimal) -> bool {
+        if let Some(last) = self.value_history.last() {
+            let elapsed = at.as_second().saturating_sub(last.at.as_second());
+            if elapsed < Self::VALUE_INTERVAL_SECONDS {
+                return false;
+            }
+        }
+
+        self.value_history.push(ValuePoint { at, total_value });
+        if self.value_history.len() > Self::MAX_VALUE_POINTS {
+            let excess = self.value_history.len() - Self::MAX_VALUE_POINTS;
+            self.value_history.drain(..excess);
+        }
+        true
     }
 
     pub fn find_holding(&self, kind: AssetKind, symbol: &str) -> Option<&Holding> {

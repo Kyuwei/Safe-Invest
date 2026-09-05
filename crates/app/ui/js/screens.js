@@ -7,6 +7,34 @@
  */
 
 import { $, $$, appendAll, clear, directionClass, el } from "./ui.js";
+import { areaPath, direction as curveDirection, linePath } from "./sparkline.js";
+
+/** Maps a direction to the class that colours it. Exported for the dialogs. */
+export function toneClass(way) {
+  return directionClass(way);
+}
+
+/** Fills the asset sheet's facts list, skipping what is not known. */
+export function renderAssetFacts(view) {
+  const list = clear($("#asset-facts"));
+
+  const facts = [
+    ["Type", view.kindLabel],
+    // Say it once: "simulated (simulé)" reads like a stutter.
+    ["Source du cours", view.isSimulated ? "marché simulé" : view.sourceId],
+    ["Relevé à", view.quotedAt],
+    ["Vous détenez", view.heldQuantity],
+    ["Valeur détenue", view.heldValue],
+    ["Coût moyen", view.heldAverageCost],
+    ["Disponible", view.cash],
+    ["Frais par opération", view.feePercent],
+  ];
+
+  for (const [label, value] of facts) {
+    if (!value) continue;
+    list.append(el("div", {}, [el("dt", { text: label }), el("dd", { text: value })]));
+  }
+}
 
 /* ----------------------------------------------------------------- home */
 
@@ -55,7 +83,7 @@ export function renderGames(games, { onOpen, onDelete }) {
 
 /* ------------------------------------------------------------ dashboard */
 
-export function renderDashboard(view, { onBuy, onSell }) {
+export function renderDashboard(view, { onBuy, onSell, onOpen }) {
   $("#total-value").textContent = view.totalValue;
 
   const delta = $("#total-delta");
@@ -70,9 +98,37 @@ export function renderDashboard(view, { onBuy, onSell }) {
   // In an AI game the human watches; the buy button would be a lie.
   $("#tab-market").disabled = view.observerMode;
 
+  renderCurve(view.valueHistory, view.currency);
   renderSourceNote(view);
   renderGoal(view.goal);
-  renderPositions(view, { onBuy, onSell });
+  renderPositions(view, { onBuy, onSell, onOpen });
+}
+
+/**
+ * Draws the portfolio's value over time.
+ *
+ * Hidden until there are at least two readings. A game opened five minutes ago
+ * has one point, and a curve drawn through one point would be a decoration
+ * pretending to be information.
+ */
+function renderCurve(values, currency) {
+  const figure = $("#value-curve");
+  const points = Array.isArray(values) ? values : [];
+
+  if (points.length < 2) {
+    figure.hidden = true;
+    return;
+  }
+
+  figure.hidden = false;
+  const way = curveDirection(points);
+  figure.classList.toggle("is-up", way > 0);
+  figure.classList.toggle("is-down", way < 0);
+
+  $("#curve-line").setAttribute("d", linePath(points, 600, 90));
+  $("#curve-area").setAttribute("d", areaPath(points, 600, 90));
+  $("#curve-caption").textContent =
+    `Valeur du portefeuille sur les ${points.length} derniers relevés, en ${currency}.`;
 }
 
 function renderSourceNote(view) {
@@ -139,7 +195,7 @@ function renderGoal(goal) {
   );
 }
 
-function renderPositions(view, { onBuy, onSell }) {
+function renderPositions(view, { onBuy, onSell, onOpen }) {
   const grid = clear($("#position-grid"));
 
   if (view.positions.length === 0) {
@@ -186,6 +242,7 @@ function renderPositions(view, { onBuy, onSell }) {
           : el("div", { class: "position-actions" }, [
               el("button", { type: "button", text: "Acheter", onClick: () => onBuy(position) }),
               el("button", { type: "button", text: "Vendre", onClick: () => onSell(position) }),
+              el("button", { type: "button", text: "Détails", onClick: () => onOpen(position) }),
             ]),
       ])
     );
@@ -194,7 +251,7 @@ function renderPositions(view, { onBuy, onSell }) {
 
 /* --------------------------------------------------------------- market */
 
-export function renderMarket(rows, { onBuy, readOnly }) {
+export function renderMarket(rows, { onOpen }) {
   const list = clear($("#market-list"));
 
   if (rows.length === 0) {
@@ -221,9 +278,8 @@ export function renderMarket(rows, { onBuy, readOnly }) {
         el("button", {
           class: "market-buy",
           type: "button",
-          text: "Acheter",
-          disabled: readOnly || !row.price,
-          onClick: () => onBuy(row),
+          text: "Détails",
+          onClick: () => onOpen(row),
         }),
       ])
     );

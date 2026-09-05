@@ -52,6 +52,7 @@ pub fn run(options: &Options) -> anyhow::Result<()> {
             crate::commands::dashboard,
             crate::commands::history,
             crate::commands::market,
+            crate::commands::asset,
             crate::commands::price_history,
             crate::commands::buy,
             crate::commands::sell,
