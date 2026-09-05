@@ -11,9 +11,13 @@ import { areaPath, direction as curveDirection, linePath } from "./sparkline.js"
 const state = {
   screen: "home",
   tab: "dashboard",
+  /** False when the shell is open with no game — the settings-only case. */
+  inGame: false,
   dashboard: null,
   marketKind: "all",
   asset: null,
+  history: { trades: [], summary: "", side: "all", search: "" },
+  info: null,
   refreshSeconds: 60,
   timer: 0,
 };
@@ -24,15 +28,18 @@ async function boot() {
   bindNavigation();
   bindNewGameForm();
   bindMarket();
+  bindHistoryFilters();
   bindTradeDialog();
   bindAssetDialog();
   bindSettings();
 
-  const info = await api.appInfo().catch(() => null);
-  if (info) {
+  state.info = await api.appInfo().catch(() => null);
+  if (state.info) {
     $("#version-line").textContent =
-      `Safe Invest ${info.version} · données dans ${info.dataDir}` +
-      (info.demoMode ? " · mode démonstration" : "");
+      `Safe Invest ${state.info.version} · données dans ${state.info.dataDir}` +
+      (state.info.demoMode ? " · mode démonstration" : "");
+    $("#mcp-config").textContent = mcpConfig(state.info);
+    screens.renderMcpTools(state.info.mcpTools);
   }
 
   await applyDisplaySettings();
@@ -40,37 +47,44 @@ async function boot() {
 
   // An AI trading in the other process must show up here without a refresh.
   await onGameChanged(() => {
-    if (state.screen === "game") refreshGame({ quiet: true });
+    if (state.screen === "shell" && state.inGame) refreshGame({ quiet: true });
     if (state.screen === "home") loadGames();
   });
 }
 
+/**
+ * The block to paste into an MCP client.
+ *
+ * Built from this executable's own path rather than a placeholder, because a
+ * placeholder is one more thing to get wrong before anything works at all.
+ */
+function mcpConfig(info) {
+  const command = info.exePath ?? "C:\\chemin\\vers\\safe-invest.exe";
+  return JSON.stringify(
+    { mcpServers: { "safe-invest": { command, args: ["mcp"] } } },
+    null,
+    2
+  );
+}
+
 function bindNavigation() {
-  for (const button of $$("[data-goto]")) {
-    button.addEventListener("click", () => {
-      const target = button.dataset.goto;
-      if (target === "home") goHome();
-      else screens.showScreen(target);
-    });
-  }
-
-  $("#btn-new-game").addEventListener("click", () => {
-    screens.showScreen("new");
-    state.screen = "new";
-  });
-
-  $("#btn-settings-home").addEventListener("click", () => openSettings());
+  $("#btn-settings-home").addEventListener("click", () => enterShell("settings", false));
   $("#btn-how").addEventListener("click", () => $("#how-dialog").showModal());
   $("#how-close").addEventListener("click", () => $("#how-dialog").close());
+  $("#nav-quit").addEventListener("click", () => goHome());
+  $("#btn-dash-buy").addEventListener("click", () => selectTab("market"));
 
-  for (const tab of $$(".tab")) {
-    tab.addEventListener("click", () => {
-      state.tab = tab.dataset.tab;
-      screens.showTab(state.tab);
-      if (state.tab === "market") loadMarket();
-      if (state.tab === "history") loadHistory();
-    });
+  for (const item of $$(".nav-item[data-tab]")) {
+    item.addEventListener("click", () => selectTab(item.dataset.tab));
   }
+}
+
+function selectTab(name) {
+  state.tab = name;
+  screens.showTab(name);
+  if (name === "market") loadMarket();
+  if (name === "history") loadHistory();
+  if (name === "settings") loadSettings();
 }
 
 /* --------------------------------------------------------------- home */
@@ -78,6 +92,7 @@ function bindNavigation() {
 async function goHome() {
   stopRefresh();
   state.screen = "home";
+  state.inGame = false;
   screens.showScreen("home");
   await loadGames();
 }
@@ -145,6 +160,7 @@ function bindNewGameForm() {
         deadline: data.playerKind === "ai" ? data.deadline : null,
       });
       form.reset();
+      $("#goal-field").hidden = true;
       await enterGame();
     } catch (raw) {
       const failure = raw instanceof AppError ? raw : new AppError(String(raw));
@@ -179,13 +195,31 @@ function updateGoalPreview() {
   );
 }
 
-/* --------------------------------------------------------------- game */
+/* -------------------------------------------------------------- shell */
+
+/**
+ * Opens the sidebar shell.
+ *
+ * `inGame` is false when the settings are reached from the menu: the shell is
+ * the only place the settings live, but the sections that need a portfolio are
+ * switched off rather than shown empty.
+ */
+function enterShell(tab, inGame) {
+  state.screen = "shell";
+  state.inGame = inGame;
+  state.tab = tab;
+
+  for (const id of ["#nav-dashboard", "#nav-market", "#nav-history"]) {
+    $(id).disabled = !inGame;
+  }
+  $("#player-card").hidden = !inGame;
+
+  screens.showScreen("shell");
+  screens.showTab(tab);
+}
 
 async function enterGame() {
-  state.screen = "game";
-  state.tab = "dashboard";
-  screens.showScreen("game");
-  screens.showTab("dashboard");
+  enterShell("dashboard", true);
   await refreshGame();
   startRefresh();
 }
@@ -195,14 +229,13 @@ async function refreshGame({ quiet = false } = {}) {
     const view = await api.dashboard();
     state.dashboard = view;
     screens.renderDashboard(view, {
-      onBuy: openBuy,
       onSell: openSell,
       onOpen: (position) => openAsset(position.symbol, position.kind),
     });
 
     if (view.observerMode) {
-      const trades = await api.history(5);
-      screens.renderAiFeed(trades, true);
+      const recent = await api.history(5);
+      screens.renderAiFeed(recent.trades, true);
     } else {
       screens.renderAiFeed([], false);
     }
@@ -216,7 +249,7 @@ async function refreshGame({ quiet = false } = {}) {
 function startRefresh() {
   stopRefresh();
   state.timer = setInterval(() => {
-    if (state.screen === "game") refreshGame({ quiet: true });
+    if (state.screen === "shell" && state.inGame) refreshGame({ quiet: true });
   }, state.refreshSeconds * 1000);
 }
 
@@ -225,12 +258,59 @@ function stopRefresh() {
   state.timer = 0;
 }
 
+/* ------------------------------------------------------------- history */
+
+function bindHistoryFilters() {
+  $("#history-search").addEventListener("input", (event) => {
+    state.history.search = event.target.value.trim().toLowerCase();
+    drawHistory();
+  });
+
+  for (const button of $$("#history-side button")) {
+    button.addEventListener("click", () => {
+      for (const other of $$("#history-side button")) other.classList.remove("is-active");
+      button.classList.add("is-active");
+      state.history.side = button.dataset.side;
+      drawHistory();
+    });
+  }
+}
+
 async function loadHistory() {
+  if (!state.inGame) return;
   try {
-    screens.renderHistory(await api.history(null));
+    const view = await api.history(null);
+    state.history.trades = view.trades;
+    state.history.summary = view.count
+      ? `${view.count} opération(s) · volume échangé ${view.volume}` +
+        (view.since ? ` · depuis le ${view.since}` : "")
+      : "Aucune opération pour l'instant.";
+    drawHistory();
   } catch (error) {
     reportError(error);
   }
+}
+
+/**
+ * Applies the filters to the rows already fetched.
+ *
+ * The filtering is over strings the engine formatted, never over money: a
+ * filter narrows what is shown, it never recomputes what a row says.
+ */
+function drawHistory() {
+  const { trades, side, search, summary } = state.history;
+
+  const shown = trades.filter((trade) => {
+    if (side !== "all" && trade.side !== side) return false;
+    if (!search) return true;
+    return (
+      trade.symbol.toLowerCase().includes(search) || trade.name.toLowerCase().includes(search)
+    );
+  });
+
+  const suffix =
+    shown.length === trades.length ? "" : ` · ${shown.length} affichée(s) après filtrage`;
+  screens.renderHistory(shown, summary + suffix);
 }
 
 /* ------------------------------------------------------------- market */
@@ -255,9 +335,21 @@ function bindMarket() {
 }
 
 async function loadMarket() {
+  if (!state.inGame) return;
   try {
     const rows = await api.market($("#market-search").value, state.marketKind);
-    screens.renderMarket(rows, { onOpen: (row) => openAsset(row.symbol, row.kind) });
+    screens.renderMarket(rows, {
+      observerMode: Boolean(state.dashboard?.observerMode),
+      onOpen: (row) => openAsset(row.symbol, row.kind),
+      onBuy: (row) =>
+        openTrade("buy", {
+          symbol: row.symbol,
+          name: row.name,
+          kind: row.kind,
+          price: row.price,
+          priceRaw: row.priceRaw,
+        }),
+    });
   } catch (error) {
     reportError(error);
   }
@@ -280,17 +372,30 @@ async function openAsset(symbol, kind) {
     state.asset = view;
 
     $("#asset-symbol").textContent = view.symbol;
-    $("#asset-name").textContent = `${view.name} · ${view.kindLabel}`;
+    $("#asset-name").textContent = view.name;
     $("#asset-price").textContent = view.price ?? "cours indisponible";
+
+    const mark = $("#asset-mark");
+    mark.className = `asset-chip asset-chip-large kind-${view.kind}`;
+    mark.textContent = view.symbol.slice(0, 4);
+
+    $("#asset-kind").textContent = view.kindLabel;
+    $("#asset-kind").className = `badge kind-badge kind-${view.kind}`;
+
+    $("#asset-source").textContent = view.quotedAt
+      ? `${view.isSimulated ? "Marché simulé" : view.sourceId ?? "source inconnue"} · relevé à ${view.quotedAt}`
+      : "";
 
     const change = $("#asset-change");
     change.textContent = view.changePercent24h ?? "";
-    change.className = screens.toneClass(view.direction);
+    change.className = `value-delta ${screens.toneClass(view.direction)}`;
+    change.hidden = !view.changePercent24h;
 
     drawAssetCurve(view);
 
     $("#asset-primer").textContent = view.primer;
     screens.renderAssetFacts(view);
+    screens.renderAssetHolding(view);
 
     // In an AI game the window watches; offering the buttons would be a lie.
     $("#asset-buy").hidden = view.observerMode;
@@ -304,13 +409,13 @@ async function openAsset(symbol, kind) {
 
 function drawAssetCurve(view) {
   const points = Array.isArray(view.history) ? view.history : [];
-  const figure = $("#asset-dialog .curve");
+  const figure = $("#asset-curve");
   const way = curveDirection(points);
 
   figure.classList.toggle("is-up", way > 0);
   figure.classList.toggle("is-down", way < 0);
-  $("#asset-line").setAttribute("d", linePath(points, 600, 140));
-  $("#asset-area").setAttribute("d", areaPath(points, 600, 140));
+  $("#asset-line").setAttribute("d", linePath(points, 620, 200));
+  $("#asset-area").setAttribute("d", areaPath(points, 620, 200));
 
   $("#asset-caption").textContent =
     points.length < 2
@@ -345,16 +450,6 @@ function bindAssetDialog() {
       priceRaw: view.priceRaw,
       quantity: view.heldQuantity,
     });
-  });
-}
-
-function openBuy(position) {
-  openTrade("buy", {
-    symbol: position.symbol,
-    name: position.name,
-    kind: position.kind,
-    priceRaw: position.priceRaw,
-    price: position.price,
   });
 }
 
@@ -501,15 +596,12 @@ function bindTradeDialog() {
 
 /* ----------------------------------------------------------- settings */
 
-async function openSettings() {
-  state.screen = "settings";
-  screens.showScreen("settings");
-
+async function loadSettings() {
   try {
     const { settings, configuredKeys, demoForced } = await api.getSettings();
 
     $("#opt-colourblind").checked = settings.colourBlindPalette;
-    $("#opt-refresh").value = String(settings.refreshIntervalSeconds);
+    syncRefreshButtons(settings.refreshIntervalSeconds);
 
     // `--demo` on the command line wins, but it is the launch that chose it,
     // not the user. Show it as such rather than ticking their box for them.
@@ -525,13 +617,19 @@ async function openSettings() {
         if (!key.trim()) return;
         await api.setApiKey(providerId, key).catch(reportError);
         toast("Clé enregistrée et chiffrée sur cette machine.", "ok");
-        screens.renderSources(await api.marketSources());
+        await loadSettings();
       },
     });
 
     screens.renderSources(await api.marketSources());
   } catch (error) {
     reportError(error);
+  }
+}
+
+function syncRefreshButtons(seconds) {
+  for (const button of $$("#opt-refresh button")) {
+    button.classList.toggle("is-active", Number(button.dataset.seconds) === seconds);
   }
 }
 
@@ -553,11 +651,25 @@ function bindSettings() {
   $("#opt-simulated").addEventListener("change", (event) =>
     persist({ forceSimulatedMode: event.target.checked })
   );
-  $("#opt-refresh").addEventListener("change", (event) =>
-    persist({ refreshIntervalSeconds: Number(event.target.value) })
-  );
+
+  for (const button of $$("#opt-refresh button")) {
+    button.addEventListener("click", () => {
+      const seconds = Number(button.dataset.seconds);
+      syncRefreshButtons(seconds);
+      persist({ refreshIntervalSeconds: seconds });
+    });
+  }
 
   $("#btn-open-data").addEventListener("click", () => api.openDataDir().catch(reportError));
+
+  $("#btn-copy-mcp").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("#mcp-config").textContent);
+      toast("Configuration copiée. Collez-la dans votre client MCP.", "ok");
+    } catch {
+      toast("Copie refusée par le système — sélectionnez le bloc à la main.", "error");
+    }
+  });
 }
 
 async function applyDisplaySettings() {

@@ -14,27 +14,26 @@ export function toneClass(way) {
   return directionClass(way);
 }
 
-/** Fills the asset sheet's facts list, skipping what is not known. */
-export function renderAssetFacts(view) {
-  const list = clear($("#asset-facts"));
-
-  const facts = [
-    ["Type", view.kindLabel],
-    // Say it once: "simulated (simulé)" reads like a stutter.
-    ["Source du cours", view.isSimulated ? "marché simulé" : view.sourceId],
-    ["Relevé à", view.quotedAt],
-    ["Vous détenez", view.heldQuantity],
-    ["Valeur détenue", view.heldValue],
-    ["Coût moyen", view.heldAverageCost],
-    ["Disponible", view.cash],
-    ["Frais par opération", view.feePercent],
-  ];
-
-  for (const [label, value] of facts) {
-    if (!value) continue;
-    list.append(el("div", {}, [el("dt", { text: label }), el("dd", { text: value })]));
-  }
+/**
+ * The square that stands in for an asset.
+ *
+ * Coloured by asset class, not by brand: inventing an orange for Bitcoin means
+ * inventing a colour for every other symbol too, and the first one we get
+ * wrong looks like a mistake about the asset rather than about the palette.
+ */
+function assetMark(symbol, kind, size = "") {
+  return el("span", {
+    class: `asset-chip kind-${kind}${size ? ` asset-chip-${size}` : ""}`,
+    text: symbol.slice(0, 4),
+    "aria-hidden": "true",
+  });
 }
+
+function kindBadge(kind, label) {
+  return el("span", { class: `badge kind-badge kind-${kind}`, text: label });
+}
+
+const KIND_LABELS = { crypto: "Crypto", stock: "Action", etf: "ETF", cash: "Liquidités" };
 
 /* ----------------------------------------------------------------- home */
 
@@ -53,29 +52,31 @@ export function renderGames(games, { onOpen, onDelete }) {
 
   for (const game of games) {
     list.append(
-      el("button", { class: "game-card", type: "button", onClick: () => onOpen(game.id) }, [
-        el("div", { class: "game-card-top" }, [
-          el("span", { class: "game-card-name", text: game.playerName }),
+      el("div", { class: "game-card" }, [
+        el("button", { class: "game-card-open", type: "button", onClick: () => onOpen(game.id) }, [
+          el("span", { class: "game-card-top" }, [
+            el("span", { class: "game-card-name", text: game.playerName }),
+            el("span", {
+              class: game.byAi ? "badge badge-ai" : "badge",
+              text: game.byAi ? "IA" : "Personne",
+            }),
+          ]),
+          el("span", { class: "game-card-meta", text: `${game.cash} disponible` }),
           el("span", {
-            class: game.byAi ? "badge badge-ai" : "badge",
-            text: game.byAi ? "🤖 IA" : "🧑 Personne",
+            class: "game-card-meta",
+            text:
+              `${game.holdingCount} position(s) · ${game.tradeCount} opération(s)` +
+              ` · ${game.updatedAt}`,
           }),
         ]),
-        el("div", { class: "game-card-meta", text: `${game.cash} disponible` }),
-        el("div", {
-          class: "game-card-meta",
-          text: `${game.holdingCount} position(s) · ${game.tradeCount} opération(s) · ${game.updatedAt}`,
+        el("button", {
+          class: "game-card-delete",
+          type: "button",
+          title: "Supprimer cette partie",
+          "aria-label": `Supprimer la partie de ${game.playerName}`,
+          text: "✕",
+          onClick: () => onDelete(game),
         }),
-        el("div", { class: "position-actions" }, [
-          el("button", {
-            type: "button",
-            text: "Supprimer",
-            onClick: (event) => {
-              event.stopPropagation();
-              onDelete(game);
-            },
-          }),
-        ]),
       ])
     );
   }
@@ -83,25 +84,109 @@ export function renderGames(games, { onOpen, onDelete }) {
 
 /* ------------------------------------------------------------ dashboard */
 
-export function renderDashboard(view, { onBuy, onSell, onOpen }) {
+export function renderDashboard(view, { onSell, onOpen }) {
+  $("#dash-greeting").textContent = view.observerMode
+    ? `Partie pilotée par ${view.playerName}`
+    : `Bonjour ${view.playerName}`;
+
   $("#total-value").textContent = view.totalValue;
 
   const delta = $("#total-delta");
   delta.textContent = `${view.totalPnl} (${view.totalPnlPercent})`;
   delta.className = `value-delta ${directionClass(view.direction)}`;
 
-  $("#cash-value").textContent = view.cash;
-  $("#invested-value").textContent = view.invested;
-  $("#realized-value").textContent = view.realizedPnl;
-
+  // In an AI game the human watches; a buy button would be a lie.
   $("#observer-pill").hidden = !view.observerMode;
-  // In an AI game the human watches; the buy button would be a lie.
-  $("#tab-market").disabled = view.observerMode;
+  $("#dash-actions").hidden = view.observerMode;
+  $("#nav-market").disabled = view.observerMode;
 
+  renderPlayerCard(view);
+  renderStats(view);
+  renderMission(view.goal);
   renderCurve(view.valueHistory, view.valueHistoryLabel, view.currency);
+  renderAllocation(view.allocation);
+  fitDashSplit();
+  renderPositions(view, { onSell, onOpen });
   renderSourceNote(view);
-  renderGoal(view.goal);
-  renderPositions(view, { onBuy, onSell, onOpen });
+}
+
+function renderPlayerCard(view) {
+  const card = $("#player-card");
+  card.hidden = false;
+  card.className = `player-card ${view.observerMode ? "is-ai" : "is-human"}`;
+  $("#player-card-kind").textContent = view.observerMode ? "JOUEUR IA" : "JOUEUR HUMAIN";
+  $("#player-card-name").textContent =
+    `${view.playerName} · ${view.positions.length} position(s)`;
+  $("#nav-dashboard-label").textContent = view.observerMode ? "Observer l'IA" : "Portefeuille";
+}
+
+function renderStats(view) {
+  $("#stat-invested").textContent = view.invested;
+  $("#stat-invested-note").textContent = `${view.positions.length} position(s)`;
+
+  $("#stat-cash").textContent = view.cash;
+  $("#stat-cash-note").textContent = `${percentText(view.cashPercent)} du total`;
+
+  const pnl = $("#stat-pnl");
+  pnl.textContent = view.totalPnl;
+  pnl.className = `stat-value ${directionClass(view.direction)}`;
+  const pnlNote = $("#stat-pnl-note");
+  pnlNote.textContent = `${view.totalPnlPercent} depuis le départ`;
+  pnlNote.className = `stat-note ${directionClass(view.direction)}`;
+
+  const best = view.bestPosition;
+  $("#stat-best").textContent = best ? best.name : "—";
+  const bestNote = $("#stat-best-note");
+  bestNote.textContent = best ? `${best.symbol} · ${best.pnlPercent}` : "rien en portefeuille";
+  bestNote.className = `stat-note ${best ? directionClass(best.direction) : ""}`;
+}
+
+/** "22,8 %" — a share of the portfolio, not money, so it is safe to format here. */
+function percentText(value) {
+  return `${Number(value ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
+}
+
+/**
+ * The mission banner: the target, how far along, and how long is left.
+ *
+ * Shown for any game that has a goal, not only an AI one — a person who set
+ * themselves a target deserves the same running total.
+ */
+function renderMission(goal) {
+  const banner = $("#mission");
+
+  if (!goal) {
+    banner.hidden = true;
+    return;
+  }
+
+  banner.hidden = false;
+  const percent = Math.max(0, Math.min(100, goal.progressPercent));
+
+  $("#mission-line").textContent = `Atteindre ${goal.targetAmount} avant le ${goal.deadline}`;
+  $("#mission-status").textContent = goal.statusLabel;
+  $("#mission-fill").style.width = `${percent}%`;
+
+  appendAll(
+    clear($("#mission-facts")),
+    el("span", {}, [
+      el("strong", { text: percentText(percent) }),
+      ` de l'objectif`,
+    ]),
+    el("span", {
+      text:
+        goal.daysRemaining > 0
+          ? `${goal.daysRemaining} jour(s) restants`
+          : "la date limite est passée",
+    }),
+    el("span", { text: `reste ${goal.amountRemaining} à gagner` }),
+    goal.requiredReturn
+      ? el("span", { text: `rythme requis : ${goal.requiredReturn}` })
+      : null,
+    goal.achievedReturn
+      ? el("span", { text: `obtenu jusqu'ici : ${goal.achievedReturn}` })
+      : null
+  );
 }
 
 /**
@@ -112,23 +197,64 @@ export function renderDashboard(view, { onBuy, onSell, onOpen }) {
  * pretending to be information.
  */
 function renderCurve(values, label, currency) {
-  const figure = $("#value-curve");
+  const card = $("#value-curve");
   const points = Array.isArray(values) ? values : [];
 
   if (points.length < 2) {
-    figure.hidden = true;
+    card.hidden = true;
     return;
   }
 
-  figure.hidden = false;
+  card.hidden = false;
   const way = curveDirection(points);
-  figure.classList.toggle("is-up", way > 0);
-  figure.classList.toggle("is-down", way < 0);
+  card.classList.toggle("is-up", way > 0);
+  card.classList.toggle("is-down", way < 0);
 
-  $("#curve-line").setAttribute("d", linePath(points, 600, 90));
-  $("#curve-area").setAttribute("d", areaPath(points, 600, 90));
-  $("#curve-caption").textContent =
-    `Valeur du portefeuille ${label || "depuis le début"}, en ${currency}.`;
+  $("#curve-line").setAttribute("d", linePath(points, 660, 200));
+  $("#curve-area").setAttribute("d", areaPath(points, 660, 200));
+  $("#curve-caption").textContent = `${label || "depuis le début"}, en ${currency}`;
+}
+
+/** The allocation bar: one band per asset class, plus the cash left over. */
+function renderAllocation(slices) {
+  const card = $("#alloc-card");
+  const bands = Array.isArray(slices) ? slices : [];
+
+  if (bands.length === 0) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  const bar = clear($("#alloc-bar"));
+  const legend = clear($("#alloc-legend"));
+
+  for (const slice of bands) {
+    const band = el("span", { class: `alloc-band kind-${slice.kind}` });
+    band.style.flexGrow = String(Math.max(slice.percent, 0.5));
+    bar.append(band);
+
+    legend.append(
+      el("li", {}, [
+        el("span", { class: `alloc-dot kind-${slice.kind}` }),
+        el("span", { class: "alloc-label", text: slice.label }),
+        el("span", { class: "alloc-percent", text: percentText(slice.percent) }),
+      ])
+    );
+  }
+}
+
+/**
+ * Lets a lone card have the whole row.
+ *
+ * The split is two tracks wide, and a hidden card still occupies one of them:
+ * without this, a game too young to have a curve showed its allocation
+ * squeezed into the column meant for the chart beside it.
+ */
+function fitDashSplit() {
+  const split = $(".dash-split");
+  const showing = [$("#value-curve"), $("#alloc-card")].filter((card) => !card.hidden);
+  split.classList.toggle("is-single", showing.length === 1);
 }
 
 function renderSourceNote(view) {
@@ -158,92 +284,96 @@ function renderSourceNote(view) {
   note.append(document.createTextNode(`Mis à jour à ${view.updatedAt}.`));
 }
 
-function renderGoal(goal) {
-  const ring = $("#goal-ring");
-  const detail = $("#goal-detail");
+/* ------------------------------------------------------------- tables */
 
-  if (!goal) {
-    ring.hidden = true;
-    detail.hidden = true;
-    return;
-  }
-
-  ring.hidden = false;
-  detail.hidden = false;
-
-  const circumference = 327;
-  const percent = Math.max(0, Math.min(100, goal.progressPercent));
-  $("#ring-value").style.strokeDashoffset = String(circumference * (1 - percent / 100));
-  $("#goal-percent").textContent = `${Math.round(percent)} %`;
-  $("#goal-days").textContent =
-    goal.daysRemaining > 0 ? `${goal.daysRemaining} j restants` : "échéance passée";
-
-  appendAll(
-    clear(detail),
-    el("strong", { text: `${goal.statusLabel} — objectif ${goal.targetAmount}` }),
-    document.createTextNode(
-      goal.daysRemaining > 0
-        ? ` · il reste ${goal.amountRemaining} à gagner en ${goal.daysRemaining} jours.`
-        : " · la date limite est passée."
-    ),
-    goal.requiredReturn
-      ? el("div", { text: `Rendement encore nécessaire : ${goal.requiredReturn}.` })
-      : null,
-    goal.achievedReturn
-      ? el("div", { text: `Rendement obtenu jusqu'ici : ${goal.achievedReturn}.` })
-      : null
+function tableHead(columns) {
+  return el(
+    "div",
+    { class: "table-head" },
+    columns.map(([label, align]) =>
+      el("span", { class: align ? `col-${align}` : null, text: label })
+    )
   );
 }
 
-function renderPositions(view, { onBuy, onSell, onOpen }) {
-  const grid = clear($("#position-grid"));
+function renderPositions(view, { onSell, onOpen }) {
+  const table = clear($("#position-table"));
 
   if (view.positions.length === 0) {
-    grid.append(
+    table.append(
       el("p", {
         class: "empty",
         text: view.observerMode
           ? "L'IA n'a encore rien acheté."
-          : "Rien en portefeuille. Passez par l'onglet Marché pour votre premier achat.",
+          : "Rien en portefeuille. Passez par Marché pour votre premier achat.",
       })
     );
     return;
   }
 
-  for (const position of view.positions) {
-    const direction = directionClass(position.direction);
+  table.append(
+    tableHead([
+      ["Actif"],
+      ["Quantité", "right"],
+      ["Prix actuel", "right"],
+      ["Valeur", "right"],
+      ["24 h", "right"],
+      ["Gain / perte", "right"],
+      [""],
+    ])
+  );
 
-    grid.append(
-      el("article", { class: `position is-${direction}` }, [
-        el("div", { class: "position-top" }, [
-          el("span", { class: "position-symbol", text: position.symbol }),
-          el("span", { class: "badge", text: `${Math.round(position.weightPercent)} %` }),
+  for (const position of view.positions) {
+    const tone = directionClass(position.direction);
+
+    table.append(
+      el("div", { class: "table-row" }, [
+        el("span", { class: "cell-asset" }, [
+          assetMark(position.symbol, position.kind),
+          el("span", {}, [
+            el("span", { class: "cell-name", text: position.name }),
+            el("span", {
+              class: "cell-sub",
+              text: KIND_LABELS[position.kind] ?? position.kind,
+            }),
+          ]),
         ]),
-        el("div", { class: "position-name", text: position.name }),
-        el("div", {
-          class: "position-value",
+        el("span", { class: "col-right", text: position.quantity }),
+        el("span", { class: "col-right" }, [
+          el("span", { text: position.price ?? "—" }),
+          position.isSimulated ? el("span", { class: "sim-flag", text: "simulé" }) : null,
+        ]),
+        el("span", {
+          class: "col-right cell-strong",
           text: position.marketValue ?? "cours indisponible",
         }),
-        position.pnl
-          ? el("div", {
-              class: `position-meta ${direction}`,
-              text: `${position.pnl} (${position.pnlPercent})`,
-            })
-          : null,
-        el("div", {
-          class: "position-meta",
-          text: `${position.quantity} × ${position.price ?? "—"} · coût moyen ${position.averageCost}`,
+        el("span", {
+          class: `col-right ${directionClass(position.changeDirection)}`,
+          text: position.changePercent24h ?? "—",
         }),
-        position.isSimulated
-          ? el("div", { class: "sim-flag", text: "cours simulé" })
-          : null,
-        view.observerMode
-          ? null
-          : el("div", { class: "position-actions" }, [
-              el("button", { type: "button", text: "Acheter", onClick: () => onBuy(position) }),
-              el("button", { type: "button", text: "Vendre", onClick: () => onSell(position) }),
-              el("button", { type: "button", text: "Détails", onClick: () => onOpen(position) }),
-            ]),
+        el("span", { class: `col-right ${tone}` }, [
+          el("span", { class: "cell-strong", text: position.pnl ?? "—" }),
+          position.pnlPercent ? el("span", { class: "cell-sub", text: position.pnlPercent }) : null,
+        ]),
+        // Two actions, not three. The sheet is where buying belongs anyway:
+        // it shows the price, the month behind it and what the asset even is,
+        // which is the whole argument for opening it before spending.
+        el("span", { class: "cell-actions" }, [
+          el("button", {
+            type: "button",
+            class: "row-button",
+            text: "Fiche",
+            onClick: () => onOpen(position),
+          }),
+          view.observerMode
+            ? null
+            : el("button", {
+                type: "button",
+                class: "row-button",
+                text: "Vendre",
+                onClick: () => onSell(position),
+              }),
+        ]),
       ])
     );
   }
@@ -251,36 +381,53 @@ function renderPositions(view, { onBuy, onSell, onOpen }) {
 
 /* --------------------------------------------------------------- market */
 
-export function renderMarket(rows, { onOpen }) {
-  const list = clear($("#market-list"));
+export function renderMarket(rows, { onOpen, onBuy, observerMode }) {
+  const table = clear($("#market-list"));
 
   if (rows.length === 0) {
-    list.append(el("p", { class: "empty", text: "Aucun actif ne correspond." }));
+    table.append(el("p", { class: "empty", text: "Aucun actif ne correspond." }));
     return;
   }
 
-  for (const row of rows) {
-    const direction = directionClass(row.direction);
+  table.append(
+    tableHead([["Nom"], ["Classe"], ["Prix", "right"], ["24 h", "right"], [""]])
+  );
 
-    list.append(
-      el("div", { class: "market-row" }, [
-        el("div", { class: "market-id" }, [
-          el("div", { class: "market-symbol", text: row.symbol }),
-          el("div", { class: "market-name", text: row.name }),
+  for (const row of rows) {
+    table.append(
+      el("div", { class: "table-row" }, [
+        el("span", { class: "cell-asset" }, [
+          assetMark(row.symbol, row.kind),
+          el("span", {}, [
+            el("span", { class: "cell-name", text: row.name }),
+            el("span", { class: "cell-sub", text: row.symbol }),
+          ]),
         ]),
-        el("div", { class: "market-price" }, [
-          el("div", { text: row.price ?? "—" }),
-          row.changePercent24h
-            ? el("div", { class: `market-change ${direction}`, text: row.changePercent24h })
-            : null,
-          row.isSimulated ? el("div", { class: "sim-flag", text: "simulé" }) : null,
+        el("span", {}, [kindBadge(row.kind, KIND_LABELS[row.kind] ?? row.kind)]),
+        el("span", { class: "col-right cell-strong" }, [
+          el("span", { text: row.price ?? "—" }),
+          row.isSimulated ? el("span", { class: "sim-flag", text: "simulé" }) : null,
         ]),
-        el("button", {
-          class: "market-buy",
-          type: "button",
-          text: "Détails",
-          onClick: () => onOpen(row),
+        el("span", {
+          class: `col-right ${directionClass(row.direction)}`,
+          text: row.changePercent24h ?? "—",
         }),
+        el("span", { class: "cell-actions" }, [
+          el("button", {
+            type: "button",
+            class: "row-button",
+            text: "Fiche",
+            onClick: () => onOpen(row),
+          }),
+          observerMode
+            ? null
+            : el("button", {
+                type: "button",
+                class: "market-buy",
+                text: "Acheter",
+                onClick: () => onBuy(row),
+              }),
+        ]),
       ])
     );
   }
@@ -288,53 +435,78 @@ export function renderMarket(rows, { onOpen }) {
 
 /* -------------------------------------------------------------- history */
 
-export function renderHistory(trades) {
-  const list = clear($("#history-list"));
+export function renderHistory(trades, summary) {
+  const table = clear($("#history-list"));
+
+  $("#history-summary").textContent = summary ?? "";
 
   if (trades.length === 0) {
-    list.append(el("p", { class: "empty", text: "Aucune opération pour l'instant." }));
+    table.append(el("p", { class: "empty", text: "Aucune opération à afficher." }));
     return;
   }
 
+  table.append(
+    tableHead([
+      ["Date"],
+      ["Type"],
+      ["Actif"],
+      ["Qté", "right"],
+      ["Prix unit.", "right"],
+      ["Montant", "right"],
+      ["Auteur", "center"],
+      ["Justification"],
+    ])
+  );
+
   for (const trade of trades) {
-    list.append(tradeCard(trade));
+    table.append(historyRow(trade));
   }
 }
 
-export function tradeCard(trade) {
-  return el("article", { class: "trade" }, [
-    el("div", { class: "trade-top" }, [
+function historyRow(trade) {
+  const tone = directionClass(trade.direction);
+
+  return el("div", { class: "table-row" }, [
+    el("span", { class: "cell-when", text: trade.timestamp }),
+    el("span", {}, [
       el("span", { class: `trade-side ${trade.side}`, text: trade.sideLabel }),
-      el("strong", { text: trade.symbol }),
-      el("span", { class: "market-name", text: trade.name }),
-      el("span", { class: "trade-when", text: trade.timestamp }),
     ]),
-    el("div", {
-      class: "trade-detail",
-      text: `${trade.quantity} × ${trade.unitPrice} = ${trade.total}` +
-        (trade.fees ? ` · frais ${trade.fees}` : ""),
-    }),
-    trade.realizedPnl
-      ? el("div", {
-          class: `trade-detail ${directionClass(trade.direction)}`,
-          text: `Résultat réalisé : ${trade.realizedPnl}`,
-        })
-      : null,
-    trade.sourceId
-      ? el("div", {
-          class: "sim-flag",
-          text: trade.wasSimulated
-            ? "cours simulé au moment de l'opération"
-            : `cours relevé chez ${trade.sourceId}`,
-        })
-      : null,
+    el("span", { class: "cell-asset" }, [
+      assetMark(trade.symbol, trade.kind ?? "cash"),
+      el("span", {}, [
+        el("span", { class: "cell-name", text: trade.name }),
+        el("span", { class: "cell-sub", text: trade.symbol }),
+      ]),
+    ]),
+    el("span", { class: "col-right", text: trade.quantity }),
+    el("span", { class: "col-right", text: trade.unitPrice }),
+    el("span", { class: "col-right" }, [
+      el("span", { class: "cell-strong", text: trade.total }),
+      trade.realizedPnl
+        ? el("span", { class: `cell-sub ${tone}`, text: trade.realizedPnl })
+        : null,
+    ]),
+    el("span", { class: "col-center" }, [
+      el("span", {
+        class: trade.byAi ? "badge badge-ai" : "badge",
+        text: trade.byAi ? "IA" : "Vous",
+      }),
+    ]),
     // The whole reason AI mode exists: the history reads as decisions, not rows.
-    trade.rationale
-      ? el("p", { class: "rationale", text: `« ${trade.rationale} »` })
-      : null,
+    el("span", { class: "cell-rationale" }, [
+      trade.rationale
+        ? el("span", { class: "rationale", text: trade.rationale })
+        : el("span", { class: "cell-sub", text: sourceLine(trade) }),
+    ]),
   ]);
 }
 
+function sourceLine(trade) {
+  if (!trade.sourceId) return "";
+  return trade.wasSimulated ? "cours simulé au moment de l'opération" : `cours relevé chez ${trade.sourceId}`;
+}
+
+/** The AI's last few moves, in the shape of a log rather than a table. */
 export function renderAiFeed(trades, visible) {
   const panel = $("#ai-feed");
   panel.hidden = !visible;
@@ -349,7 +521,64 @@ export function renderAiFeed(trades, visible) {
   }
 
   for (const trade of recent) {
-    list.append(el("li", {}, [tradeCard(trade)]));
+    list.append(
+      el("li", { class: "feed-row" }, [
+        el("span", { class: "feed-when", text: trade.timestamp }),
+        el("span", { class: `trade-side ${trade.side}`, text: trade.sideLabel }),
+        el("span", { class: "feed-body" }, [
+          el("span", { class: "feed-headline" }, [
+            el("strong", { text: `${trade.quantity} ${trade.symbol}` }),
+            ` à ${trade.unitPrice} · ${trade.total}`,
+          ]),
+          trade.rationale ? el("span", { class: "rationale", text: trade.rationale }) : null,
+        ]),
+        trade.realizedPnl
+          ? el("span", {
+              class: `feed-result ${directionClass(trade.direction)}`,
+              text: trade.realizedPnl,
+            })
+          : null,
+      ])
+    );
+  }
+}
+
+/* ---------------------------------------------------------- asset sheet */
+
+/** The market facts: where the price came from and when. */
+export function renderAssetFacts(view) {
+  const list = clear($("#asset-facts"));
+
+  const facts = [
+    ["Type", view.kindLabel],
+    // Say it once: "simulated (simulé)" reads like a stutter.
+    ["Source du cours", view.isSimulated ? "marché simulé" : view.sourceId],
+    ["Relevé à", view.quotedAt],
+    ["Disponible", view.cash],
+    ["Frais par opération", view.feePercent],
+  ];
+
+  for (const [label, value] of facts) {
+    if (!value) continue;
+    list.append(el("div", {}, [el("dt", { text: label }), el("dd", { text: value })]));
+  }
+}
+
+/** What is already held, if anything is. */
+export function renderAssetHolding(view) {
+  const panel = $("#asset-holding");
+  const list = clear($("#asset-holding-facts"));
+
+  const facts = [
+    ["Quantité", view.heldQuantity],
+    ["Valeur", view.heldValue],
+    ["Coût moyen", view.heldAverageCost],
+  ].filter(([, value]) => Boolean(value));
+
+  panel.hidden = facts.length === 0;
+
+  for (const [label, value] of facts) {
+    list.append(el("div", {}, [el("dt", { text: label }), el("dd", { text: value })]));
   }
 }
 
@@ -360,24 +589,29 @@ export function renderSources(sources) {
 
   for (const source of sources) {
     const state = source.healthy === null ? "" : source.healthy ? "ok" : "ko";
-    const kinds = source.kinds.join(", ");
+    const status = source.healthy === null ? "jamais appelée" : source.healthy ? "Répond" : "Muette";
 
     list.append(
       el("div", { class: "source" }, [
-        el("span", { class: `dot ${state}` }),
-        el("div", {}, [
-          el("div", { text: source.label }),
+        el("div", { class: "source-body" }, [
+          el("div", { class: "source-name" }, [
+            el("span", { text: source.label }),
+            el("span", { class: "badge", text: source.id }),
+          ]),
           el("div", {
             class: "source-detail",
             text:
               (source.configured ? "" : "clé absente · ") +
               (source.isSimulated ? "cours inventés · " : "") +
-              kinds +
+              source.kinds.join(", ") +
               (source.detail ? ` · ${source.detail}` : "") +
               (source.lastUsed ? ` · vu à ${source.lastUsed}` : ""),
           }),
         ]),
-        el("span", { class: "badge", text: source.id }),
+        el("span", { class: `source-status ${state}` }, [
+          el("span", { class: `dot ${state}` }),
+          el("span", { text: status }),
+        ]),
       ])
     );
   }
@@ -387,12 +621,12 @@ export function renderKeyForm(configured, { onSave }) {
   const form = clear($("#key-form"));
 
   const providers = [
-    ["coingecko", "CoinGecko (clé Demo gratuite, plus de requêtes par minute)"],
-    ["coinmarketcap", "CoinMarketCap (clé gratuite, 15 000 crédits par mois)"],
-    ["finnhub", "Finnhub (clé gratuite, actions américaines)"],
+    ["coingecko", "CoinGecko", "Clé Demo gratuite : plus de requêtes par minute."],
+    ["coinmarketcap", "CoinMarketCap", "Clé gratuite : 15 000 crédits par mois."],
+    ["finnhub", "Finnhub", "Clé gratuite : actions américaines."],
   ];
 
-  for (const [id, label] of providers) {
+  for (const [id, label, note] of providers) {
     const input = el("input", {
       type: "password",
       autocomplete: "off",
@@ -400,26 +634,40 @@ export function renderKeyForm(configured, { onSave }) {
     });
 
     form.append(
-      el("div", { class: "key-row" }, [
-        el("label", { class: "field" }, [
-          el("span", { class: "field-label", text: label }),
-          input,
+      el("div", { class: "key-card" }, [
+        el("div", { class: "key-card-head" }, [
+          el("span", { class: "key-card-name", text: label }),
+          configured.includes(id)
+            ? el("span", { class: "badge badge-ok", text: "enregistrée" })
+            : el("span", { class: "badge", text: "absente" }),
         ]),
-        el("button", {
-          class: "ghost",
-          type: "button",
-          text: "Enregistrer",
-          onClick: () => {
-            onSave(id, input.value);
-            input.value = "";
-          },
-        }),
+        el("p", { class: "field-note", text: note }),
+        el("div", { class: "key-row" }, [
+          input,
+          el("button", {
+            class: "ghost",
+            type: "button",
+            text: "Enregistrer",
+            onClick: () => {
+              onSave(id, input.value);
+              input.value = "";
+            },
+          }),
+        ]),
       ])
     );
   }
 }
 
-/* ------------------------------------------------------------ screens */
+/** The tool names an AI would be handed, read from the program, never retyped. */
+export function renderMcpTools(names) {
+  const list = clear($("#mcp-tools"));
+  for (const name of names ?? []) {
+    list.append(el("code", { class: "tool-chip", text: name }));
+  }
+}
+
+/* ------------------------------------------------------------ navigation */
 
 export function showScreen(name) {
   for (const screen of $$(".screen")) {
@@ -429,10 +677,11 @@ export function showScreen(name) {
 }
 
 export function showTab(name) {
-  for (const tab of $$(".tab")) {
-    tab.classList.toggle("is-active", tab.dataset.tab === name);
+  for (const item of $$(".nav-item[data-tab]")) {
+    item.classList.toggle("is-active", item.dataset.tab === name);
   }
   for (const panel of $$(".tab-panel")) {
     panel.hidden = panel.id !== `panel-${name}`;
   }
+  $(".workspace")?.scrollTo({ top: 0 });
 }
