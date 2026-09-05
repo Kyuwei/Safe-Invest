@@ -43,7 +43,13 @@ public sealed class PositionItem
             : $"Source : {Formatting.SourceLabel(position.SourceId)}";
     }
 
-    public Asset Asset { get; }
+    /// <summary>
+    /// Internal on purpose. The XAML type-info generator builds an activator for every
+    /// public property type of a bindable class, and Asset has `required` members, so the
+    /// generated `new Asset()` does not compile. Nothing in XAML needs the domain object —
+    /// only the code-behind does, and that lives in this assembly.
+    /// </summary>
+    internal Asset Asset { get; }
 
     public string Symbol { get; }
 
@@ -105,7 +111,8 @@ public sealed class MarketItem
         IsHeld = heldQuantity > 0m;
     }
 
-    public Asset Asset { get; }
+    /// <summary>Internal for the same reason as on <see cref="PositionItem"/>.</summary>
+    internal Asset Asset { get; }
 
     public string Symbol { get; }
 

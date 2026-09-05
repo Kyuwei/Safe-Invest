@@ -62,7 +62,7 @@ internal sealed class TradeDialog : ContentDialog
     /// <summary>True once an order went through, so the caller knows to refresh.</summary>
     public bool TradeWasMade { get; private set; }
 
-    private UIElement BuildContent()
+    private ScrollViewer BuildContent()
     {
         StackPanel panel = new() { Spacing = 14, Width = 420 };
 

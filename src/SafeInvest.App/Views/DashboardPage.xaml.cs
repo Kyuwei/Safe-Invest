@@ -64,8 +64,8 @@ public sealed partial class DashboardPage : Page
             _ => "SafeInvestFlatBrush",
         });
 
-        PnLText.Text = Formatting.MoneySigned(snapshot.TotalPnL, currency);
-        PnLPercentText.Text = $"({Formatting.Percent(snapshot.TotalPnLPercent)})";
+        TotalPnLValueText.Text = Formatting.MoneySigned(snapshot.TotalPnL, currency);
+        TotalPnLPercentValueText.Text = $"({Formatting.Percent(snapshot.TotalPnLPercent)})";
         PnLGlyph.Text = snapshot.Direction switch { > 0 => "\uE70E", < 0 => "\uE70D", _ => "\uE738" };
 
         Microsoft.UI.Xaml.Media.Brush pnlBrush = PaletteLookup.Brush(snapshot.Direction switch
@@ -74,14 +74,14 @@ public sealed partial class DashboardPage : Page
             < 0 => "SafeInvestDownBrush",
             _ => "SafeInvestFlatBrush",
         });
-        PnLText.Foreground = pnlBrush;
-        PnLPercentText.Foreground = pnlBrush;
+        TotalPnLValueText.Foreground = pnlBrush;
+        TotalPnLPercentValueText.Foreground = pnlBrush;
         PnLGlyph.Foreground = pnlBrush;
 
         CashText.Text = Formatting.Money(snapshot.Cash, currency);
         InvestedText.Text = Formatting.Money(snapshot.MarketValue, currency);
-        RealizedText.Text = Formatting.MoneySigned(snapshot.RealizedPnL, currency);
-        RealizedText.Foreground = PaletteLookup.Brush(Math.Sign(snapshot.RealizedPnL) switch
+        RealizedGainValueText.Text = Formatting.MoneySigned(snapshot.RealizedPnL, currency);
+        RealizedGainValueText.Foreground = PaletteLookup.Brush(Math.Sign(snapshot.RealizedPnL) switch
         {
             > 0 => "SafeInvestUpBrush",
             < 0 => "SafeInvestDownBrush",

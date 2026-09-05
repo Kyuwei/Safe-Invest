@@ -68,7 +68,7 @@ public sealed partial class StartPage : Page
     /// The primer stays short on purpose. Someone who has never invested needs the shape
     /// of the thing, not a course — the rest is learned by playing.
     /// </summary>
-    private static UIElement BuildPrimer()
+    private static StackPanel BuildPrimer()
     {
         StackPanel panel = new() { Spacing = 14, Width = 460 };
 
