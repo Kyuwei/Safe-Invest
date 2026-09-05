@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Safe Invest</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- The one thing that must never be missable. -->
+    <div class="fiction-banner" role="note">
+      <span aria-hidden="true">🎓</span>
+      Argent fictif — aucune transaction réelle. Les cours, eux, sont réels.
+    </div>
+
+    <div class="app" id="app">
+      <!-- ============================ Accueil ============================ -->
+      <section class="screen" id="screen-home" data-screen="home">
+        <header class="hero">
+          <div class="hero-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="56" height="56">
+              <polyline points="8,46 22,30 34,38 56,12" fill="none" stroke="currentColor"
+                stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="56" cy="12" r="6" fill="currentColor" />
+            </svg>
+          </div>
+          <div>
+            <h1>Safe Invest</h1>
+            <p class="hero-tagline">
+              Investissez une somme fictive dans de vraies cryptos, actions et ETF.
+              Voyez ce que ça donne, sans risquer un centime.
+            </p>
+          </div>
+        </header>
+
+        <div class="home-actions">
+          <button class="tile tile-primary" id="btn-new-game">
+            <span class="tile-icon" aria-hidden="true">✨</span>
+            <span class="tile-title">Nouvelle partie</span>
+            <span class="tile-sub">Choisissez qui joue et avec combien</span>
+          </button>
+          <button class="tile" id="btn-how">
+            <span class="tile-icon" aria-hidden="true">💡</span>
+            <span class="tile-title">Comment ça marche&nbsp;?</span>
+            <span class="tile-sub">Deux minutes pour comprendre</span>
+          </button>
+          <button class="tile" id="btn-settings-home">
+            <span class="tile-icon" aria-hidden="true">⚙️</span>
+            <span class="tile-title">Réglages</span>
+            <span class="tile-sub">Sources de cours, clés, affichage</span>
+          </button>
+        </div>
+
+        <h2 class="section-title">Reprendre une partie</h2>
+        <div class="game-list" id="game-list"></div>
+      </section>
+
+      <!-- ========================= Nouvelle partie ======================== -->
+      <section class="screen" id="screen-new" data-screen="new" hidden>
+        <button class="back" data-goto="home">← Retour</button>
+        <h1>Nouvelle partie</h1>
+
+        <form id="new-game-form" class="card form">
+          <label class="field">
+            <span class="field-label">Nom du joueur</span>
+            <input name="playerName" required maxlength="40" placeholder="Léa" />
+          </label>
+
+          <fieldset class="field">
+            <legend class="field-label">Qui joue&nbsp;?</legend>
+            <div class="choice-row">
+              <label class="choice">
+                <input type="radio" name="playerKind" value="human" checked />
+                <span class="choice-body">
+                  <span class="choice-icon" aria-hidden="true">🧑</span>
+                  <span class="choice-title">Une personne</span>
+                  <span class="choice-sub">Vous achetez et vendez vous-même.</span>
+                </span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="playerKind" value="ai" />
+                <span class="choice-body">
+                  <span class="choice-icon" aria-hidden="true">🤖</span>
+                  <span class="choice-title">Une IA</span>
+                  <span class="choice-sub">
+                    Elle joue via MCP. L'écran devient un poste d'observation et chaque
+                    opération est justifiée.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field">
+            <legend class="field-label">Capital de départ</legend>
+            <div class="preset-row" id="cash-presets">
+              <button type="button" class="preset" data-amount="1000">1 000 €</button>
+              <button type="button" class="preset is-active" data-amount="10000">10 000 €</button>
+              <button type="button" class="preset" data-amount="100000">100 000 €</button>
+            </div>
+            <input name="startingCash" inputmode="decimal" value="10000" required />
+          </fieldset>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">Devise</span>
+              <select name="currency">
+                <option value="EUR">Euro (€)</option>
+                <option value="USD">Dollar ($)</option>
+                <option value="GBP">Livre (£)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">
+                Frais par opération
+                <span class="hint" title="Les courtiers prennent une commission. Mettre 0,1 % rend la simulation plus réaliste.">?</span>
+              </span>
+              <input name="feePercent" inputmode="decimal" value="0" />
+              <span class="field-unit">%</span>
+            </label>
+          </div>
+
+          <fieldset class="field goal-field" id="goal-field" hidden>
+            <legend class="field-label">Objectif à atteindre</legend>
+            <p class="field-note">
+              Donnez à l'IA une cible chiffrée et une date. L'écran suivra l'avancement.
+            </p>
+            <div class="field-grid">
+              <label class="field">
+                <span class="field-label">Montant visé</span>
+                <input name="targetAmount" inputmode="decimal" placeholder="15000" />
+              </label>
+              <label class="field">
+                <span class="field-label">Pour le</span>
+                <input name="deadline" type="date" />
+              </label>
+            </div>
+            <p class="goal-preview" id="goal-preview"></p>
+          </fieldset>
+
+          <p class="form-error" id="new-game-error" role="alert" hidden></p>
+          <button class="primary" type="submit">Commencer</button>
+        </form>
+      </section>
+
+      <!-- ============================ Partie ============================= -->
+      <section class="screen screen-game" id="screen-game" data-screen="game" hidden>
+        <nav class="tabs" role="tablist">
+          <button class="tab is-active" role="tab" data-tab="dashboard">Tableau de bord</button>
+          <button class="tab" role="tab" data-tab="market" id="tab-market">Marché</button>
+          <button class="tab" role="tab" data-tab="history">Historique</button>
+          <div class="tabs-spacer"></div>
+          <span class="pill" id="observer-pill" hidden>👁️ Observation — l'IA joue</span>
+          <button class="ghost" data-goto="home">Quitter</button>
+        </nav>
+
+        <div class="tab-panel" id="panel-dashboard">
+          <div class="value-row">
+            <div class="value-block">
+              <span class="value-label">Valeur du portefeuille</span>
+              <strong class="value-big" id="total-value">—</strong>
+              <span class="value-delta" id="total-delta"></span>
+            </div>
+            <div class="value-side">
+              <div><span class="value-label">Disponible</span><strong id="cash-value">—</strong></div>
+              <div><span class="value-label">Investi</span><strong id="invested-value">—</strong></div>
+              <div><span class="value-label">Gains réalisés</span><strong id="realized-value">—</strong></div>
+            </div>
+            <div class="goal-ring" id="goal-ring" hidden>
+              <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+                <circle class="ring-track" cx="60" cy="60" r="52" />
+                <circle class="ring-value" cx="60" cy="60" r="52" id="ring-value" />
+              </svg>
+              <div class="goal-ring-text">
+                <strong id="goal-percent">0 %</strong>
+                <span id="goal-days"></span>
+              </div>
+            </div>
+          </div>
+
+          <p class="source-note" id="source-note"></p>
+          <div class="goal-detail" id="goal-detail" hidden></div>
+
+          <h2 class="section-title">Vos positions</h2>
+          <div class="position-grid" id="position-grid"></div>
+
+          <div class="ai-feed" id="ai-feed" hidden>
+            <h2 class="section-title">Ce que l'IA vient de faire</h2>
+            <ol class="feed" id="feed-list"></ol>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-market" hidden>
+          <div class="market-controls">
+            <input type="search" id="market-search" placeholder="Chercher : bitcoin, Airbus, MSCI World…" />
+            <div class="chip-row" id="kind-chips">
+              <button class="chip is-active" data-kind="all">Tout</button>
+              <button class="chip" data-kind="crypto">Cryptos</button>
+              <button class="chip" data-kind="stock">Actions</button>
+              <button class="chip" data-kind="etf">ETF</button>
+            </div>
+          </div>
+          <div class="market-list" id="market-list"></div>
+        </div>
+
+        <div class="tab-panel" id="panel-history" hidden>
+          <h2 class="section-title">Historique des opérations</h2>
+          <div class="history" id="history-list"></div>
+        </div>
+      </section>
+
+      <!-- =========================== Réglages ============================ -->
+      <section class="screen" id="screen-settings" data-screen="settings" hidden>
+        <button class="back" data-goto="home">← Retour</button>
+        <h1>Réglages</h1>
+
+        <div class="card">
+          <h2>Sources de cours</h2>
+          <p class="field-note">
+            Safe Invest essaie les sources dans l'ordre jusqu'à en trouver une qui répond.
+            Sans aucune clé, tout fonctionne déjà.
+          </p>
+          <div class="source-list" id="source-list"></div>
+        </div>
+
+        <div class="card">
+          <h2>Clés d'API</h2>
+          <p class="field-note">
+            Facultatives. Une clé est chiffrée sur votre machine et n'est jamais réaffichée.
+          </p>
+          <div class="key-form" id="key-form"></div>
+        </div>
+
+        <div class="card">
+          <h2>Affichage et confort</h2>
+          <label class="switch">
+            <input type="checkbox" id="opt-colourblind" />
+            <span>Palette daltonisme (bleu / orange au lieu de vert / rouge)</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="opt-simulated" />
+            <span>Mode démonstration : cours simulés, aucun appel réseau</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Rafraîchissement des cours</span>
+            <select id="opt-refresh">
+              <option value="30">Toutes les 30 secondes</option>
+              <option value="60">Toutes les minutes</option>
+              <option value="300">Toutes les 5 minutes</option>
+            </select>
+          </label>
+          <button class="ghost" id="btn-open-data">Ouvrir le dossier des parties</button>
+        </div>
+
+        <p class="version-line" id="version-line"></p>
+      </section>
+    </div>
+
+    <!-- ============================= Dialogs ============================ -->
+    <dialog id="trade-dialog" class="dialog">
+      <form method="dialog" id="trade-form">
+        <h2 id="trade-title">Acheter</h2>
+        <p class="trade-asset" id="trade-asset"></p>
+
+        <div class="segmented" id="trade-mode">
+          <button type="button" class="is-active" data-mode="amount">Pour un montant</button>
+          <button type="button" data-mode="quantity">Par quantité</button>
+        </div>
+
+        <label class="field">
+          <span class="field-label" id="trade-input-label">Montant à investir</span>
+          <input id="trade-input" inputmode="decimal" autocomplete="off" />
+        </label>
+        <p class="trade-estimate" id="trade-estimate"></p>
+
+        <label class="field" id="trade-rationale-field" hidden>
+          <span class="field-label">Justification</span>
+          <textarea id="trade-rationale" rows="2" maxlength="280"></textarea>
+        </label>
+
+        <p class="form-error" id="trade-error" role="alert" hidden></p>
+        <menu class="dialog-actions">
+          <button type="button" class="ghost" id="trade-cancel">Annuler</button>
+          <button type="submit" class="primary" id="trade-confirm">Confirmer</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="how-dialog" class="dialog">
+      <h2>Comment ça marche&nbsp;?</h2>
+      <ol class="how-list">
+        <li><strong>Vous partez d'une somme fictive.</strong> Rien de réel n'est engagé, jamais.</li>
+        <li><strong>Les cours, eux, sont réels.</strong> Ils viennent de CoinGecko, Yahoo Finance
+          et d'autres. Quand aucune source ne répond, un marché simulé prend le relais — et
+          l'écran vous le dit.</li>
+        <li><strong>Acheter, c'est échanger.</strong> Votre argent disponible devient des parts.
+          Leur valeur monte et descend&nbsp;: c'est votre plus-value <em>latente</em>.</li>
+        <li><strong>Vendre réalise le résultat.</strong> Tant que vous ne vendez pas, rien n'est
+          gagné ni perdu pour de bon.</li>
+        <li><strong>Diversifier réduit le risque.</strong> Tout mettre sur une ligne, c'est parier
+          sur elle seule.</li>
+        <li><strong>Une IA peut jouer à votre place</strong> via MCP, et doit justifier chaque
+          opération. L'historique se lit alors comme une suite de décisions expliquées.</li>
+      </ol>
+      <menu class="dialog-actions">
+        <button class="primary" id="how-close">J'ai compris</button>
+      </menu>
+    </dialog>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

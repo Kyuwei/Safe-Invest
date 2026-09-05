@@ -27,10 +27,12 @@
         "enable": false
       }
     },
-    "withGlobalTauri": false
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/icon.png"]
+    "icon": [
+      "icons/icon.png"
+    ]
   }
 }
