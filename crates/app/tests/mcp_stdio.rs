@@ -19,6 +19,12 @@
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// A server that never answers would block `read_line` forever, and a hung test
+/// sits on a CI runner until the job's own timeout. This bounds it.
+const WATCHDOG: std::time::Duration = std::time::Duration::from_secs(60);
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
@@ -28,6 +34,7 @@ struct Session {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     next_id: i64,
+    finished: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -49,11 +56,30 @@ impl Session {
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
 
+        // Killing the child unblocks any read waiting on its output, which
+        // turns a hang into an ordinary test failure.
+        let finished = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&finished);
+        let pid = child.id();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + WATCHDOG;
+            while std::time::Instant::now() < deadline {
+                if watched.load(Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            // `Child::kill` needs the handle the test still owns, so go through
+            // the platform's own command instead.
+            let _ = kill(pid);
+        });
+
         let mut session = Self {
             child,
             stdin,
             stdout,
             next_id: 0,
+            finished,
         };
         session.handshake();
         session
@@ -169,9 +195,30 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.finished.store(true, Ordering::SeqCst);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+#[cfg(windows)]
+fn kill(pid: u32) -> std::io::Result<()> {
+    Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
+}
+
+#[cfg(not(windows))]
+fn kill(pid: u32) -> std::io::Result<()> {
+    Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
 }
 
 #[test]
