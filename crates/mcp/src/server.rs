@@ -179,6 +179,28 @@ pub struct SellArgs {
 
 // ------------------------------------------------------------------ tools
 
+/// Every tool an AI can call, in the order the settings screen lists them.
+///
+/// It sits beside the router and is checked against it by a test below, so a
+/// tool added in one place and forgotten in the other fails the build rather
+/// than quietly misleading whoever reads the settings screen.
+pub const TOOL_NAMES: &[&str] = &[
+    "list_games",
+    "create_game",
+    "open_game",
+    "get_portfolio",
+    "set_goal",
+    "get_goal_progress",
+    "get_trade_history",
+    "get_market_sources",
+    "search_assets",
+    "list_popular_assets",
+    "get_quotes",
+    "get_price_history",
+    "buy",
+    "sell",
+];
+
 #[tool_router]
 #[allow(
     clippy::unnecessary_wraps,
@@ -685,4 +707,26 @@ fn trade_json(trade: &safe_invest_core::model::Trade) -> Value {
         "quoteSourceId": trade.quote_source_id,
         "quoteWasSimulated": trade.quote_was_simulated,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SafeInvestServer, TOOL_NAMES};
+
+    /// The settings screen shows this list to explain what an AI may do. A
+    /// stale list would understate — or overstate — the access being granted.
+    #[test]
+    fn the_advertised_tool_list_matches_the_router() {
+        let mut served: Vec<String> = SafeInvestServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        served.sort();
+
+        let mut advertised: Vec<String> = TOOL_NAMES.iter().map(|n| (*n).to_owned()).collect();
+        advertised.sort();
+
+        assert_eq!(served, advertised);
+    }
 }

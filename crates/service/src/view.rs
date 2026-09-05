@@ -11,7 +11,7 @@ use jiff::Timestamp;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use safe_invest_core::model::{
-    Asset, GoalProgress, GoalStatus, PlayerKind, PositionView, Quote, Trade, TradeSide,
+    Asset, AssetKind, GoalProgress, GoalStatus, PlayerKind, PositionView, Quote, Trade, TradeSide,
 };
 use serde::Serialize;
 
@@ -41,7 +41,17 @@ pub struct DashboardView {
     pub realized_pnl: String,
     pub unrealized_pnl: String,
 
+    /// Cash as a share of everything, so the dashboard can say how much of the
+    /// portfolio is still sitting still.
+    pub cash_percent: f64,
+
     pub positions: Vec<PositionCard>,
+    /// How the money is spread, largest slice first, cash included. Slices sum
+    /// to a hundred: leaving cash out would draw a "répartition" of the money
+    /// that happens to be invested, which is not the question being asked.
+    pub allocation: Vec<AllocationSlice>,
+    /// The position that has gained the most, when anything has gained at all.
+    pub best_position: Option<BestPosition>,
     pub goal: Option<GoalView>,
     /// The portfolio's value over time, oldest first, for the dashboard curve.
     /// Empty until the game has been open long enough to record a second point.
@@ -54,6 +64,27 @@ pub struct DashboardView {
     pub contains_simulated_prices: bool,
     pub unpriced_symbols: Vec<String>,
     pub updated_at: String,
+}
+
+/// One band of the allocation bar: a kind of asset, or the cash left over.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocationSlice {
+    /// `crypto`, `stock`, `etf`, or `cash` — the interface colours by this.
+    pub kind: String,
+    pub label: String,
+    pub percent: f64,
+    pub value: String,
+}
+
+/// The best line in the portfolio, named on the dashboard.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BestPosition {
+    pub symbol: String,
+    pub name: String,
+    pub pnl_percent: String,
+    pub direction: Direction,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +134,7 @@ pub struct TradeRow {
     pub side_label: String,
     pub symbol: String,
     pub name: String,
+    pub kind: String,
     pub quantity: String,
     pub unit_price: String,
     pub total: String,
@@ -178,6 +210,12 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
     sources.sort_unstable();
     sources.dedup();
 
+    let cards: Vec<PositionCard> = snapshot
+        .positions
+        .iter()
+        .map(|p| position(p, currency))
+        .collect();
+
     DashboardView {
         game_id: session.id.to_string(),
         player_name: session.player_name.clone(),
@@ -195,11 +233,14 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
         realized_pnl: signed_money(snapshot.realized_pnl, currency),
         unrealized_pnl: signed_money(snapshot.unrealized_pnl, currency),
 
-        positions: snapshot
-            .positions
-            .iter()
-            .map(|p| position(p, currency))
-            .collect(),
+        cash_percent: to_f64(
+            safe_invest_core::money::percent(snapshot.cash, snapshot.total_value)
+                .unwrap_or(Decimal::ZERO),
+        ),
+
+        allocation: allocation(snapshot, currency),
+        best_position: best_position(snapshot),
+        positions: cards,
         goal: report.goal.as_ref().map(|g| goal(g, currency)),
         value_history: session
             .value_history
@@ -213,6 +254,82 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
         unpriced_symbols: snapshot.unpriced_symbols.clone(),
         updated_at: datetime(snapshot.as_of),
     }
+}
+
+/// Groups the portfolio into the bands of the allocation bar.
+///
+/// Cash is a band like any other. Someone holding nine tenths of their money in
+/// cash has a portfolio that is nine tenths cash, and a chart that quietly
+/// leaves it out tells them the opposite of what they need to know.
+fn allocation(
+    snapshot: &safe_invest_core::model::PortfolioSnapshot,
+    currency: &str,
+) -> Vec<AllocationSlice> {
+    use safe_invest_core::money;
+
+    let mut slices: Vec<AllocationSlice> = Vec::new();
+
+    for kind in [AssetKind::Crypto, AssetKind::Stock, AssetKind::Etf] {
+        let (value, percent) = snapshot
+            .positions
+            .iter()
+            .filter(|position| position.asset.kind == kind)
+            .fold(
+                (Decimal::ZERO, Decimal::ZERO),
+                |(value, percent), position| {
+                    (
+                        money::add(value, position.market_value.unwrap_or(Decimal::ZERO))
+                            .unwrap_or(value),
+                        money::add(percent, position.weight_percent).unwrap_or(percent),
+                    )
+                },
+            );
+
+        if value.is_zero() {
+            continue;
+        }
+
+        slices.push(AllocationSlice {
+            kind: kind.as_str().to_owned(),
+            label: kind_plural(kind).to_owned(),
+            percent: to_f64(percent),
+            value: money(value, currency),
+        });
+    }
+
+    if !snapshot.cash.is_zero() {
+        slices.push(AllocationSlice {
+            kind: "cash".to_owned(),
+            label: "Liquidités".to_owned(),
+            percent: to_f64(
+                money::percent(snapshot.cash, snapshot.total_value).unwrap_or(Decimal::ZERO),
+            ),
+            value: money(snapshot.cash, currency),
+        });
+    }
+
+    slices.sort_by(|a, b| b.percent.total_cmp(&a.percent));
+    slices
+}
+
+/// The line that has gained the most, if any line has gained at all.
+fn best_position(snapshot: &safe_invest_core::model::PortfolioSnapshot) -> Option<BestPosition> {
+    let (position, percent) = snapshot
+        .positions
+        .iter()
+        .filter_map(|position| {
+            position
+                .unrealized_pnl_percent
+                .map(|percent| (position, percent))
+        })
+        .max_by(|left, right| left.1.cmp(&right.1))?;
+
+    Some(BestPosition {
+        symbol: position.asset.symbol.clone(),
+        name: position.asset.name.clone(),
+        pnl_percent: signed_percent(percent),
+        direction: direction_of(Some(percent)),
+    })
 }
 
 pub fn position(view: &PositionView, currency: &str) -> PositionCard {
@@ -273,6 +390,7 @@ pub fn trade(trade: &Trade, currency: &str) -> TradeRow {
         .to_owned(),
         symbol: trade.asset.symbol.clone(),
         name: trade.asset.name.clone(),
+        kind: trade.asset.kind.as_str().to_owned(),
         quantity: quantity(trade.quantity),
         unit_price: money(trade.unit_price, currency),
         total: money(trade.total, currency),
@@ -347,11 +465,19 @@ fn held_value(quantity: Decimal, price: Decimal) -> Decimal {
     quantity.checked_mul(price).unwrap_or(Decimal::ZERO)
 }
 
-fn kind_label(kind: safe_invest_core::model::AssetKind) -> &'static str {
-    use safe_invest_core::model::AssetKind;
+fn kind_label(kind: AssetKind) -> &'static str {
     match kind {
         AssetKind::Crypto => "Cryptomonnaie",
         AssetKind::Stock => "Action",
+        AssetKind::Etf => "ETF",
+    }
+}
+
+/// The same word in the plural, for the allocation bar's legend.
+fn kind_plural(kind: AssetKind) -> &'static str {
+    match kind {
+        AssetKind::Crypto => "Cryptos",
+        AssetKind::Stock => "Actions",
         AssetKind::Etf => "ETF",
     }
 }

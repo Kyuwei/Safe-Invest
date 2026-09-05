@@ -73,8 +73,13 @@ fn parse_kind(value: &str) -> Answer<AssetKind> {
 pub struct AppInfo {
     pub version: String,
     pub data_dir: String,
+    /// This executable's own path, so the settings screen can hand over an MCP
+    /// configuration block that is already correct rather than a placeholder.
+    pub exe_path: Option<String>,
     pub demo_mode: bool,
     pub current_game_id: Option<String>,
+    /// The tools an AI would be given. Read from the MCP crate, never retyped.
+    pub mcp_tools: Vec<String>,
 }
 
 #[tauri::command]
@@ -82,8 +87,15 @@ pub fn app_info(context: tauri::State<'_, Context>) -> AppInfo {
     AppInfo {
         version: safe_invest_core::VERSION.to_owned(),
         data_dir: context.store().paths().root().display().to_string(),
+        exe_path: std::env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
         demo_mode: context.settings().force_simulated_mode,
         current_game_id: context.current_game_id().map(|id| id.to_string()),
+        mcp_tools: safe_invest_mcp::server::TOOL_NAMES
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect(),
     }
 }
 
@@ -238,14 +250,45 @@ pub async fn dashboard(context: tauri::State<'_, Context>) -> Answer<DashboardVi
     Ok(view::dashboard(&report))
 }
 
+/// The trades, plus the two figures that head the history screen.
+///
+/// The volume is summed here rather than in the window for the same reason
+/// every other figure is: money arithmetic belongs where it can be checked,
+/// and a front end adding up floating-point euros will eventually be a cent
+/// out in a way nobody can explain.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryView {
+    pub trades: Vec<TradeRow>,
+    pub count: usize,
+    pub volume: String,
+    /// The date of the oldest operation shown, absent when there are none.
+    pub since: Option<String>,
+}
+
 #[tauri::command]
-pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answer<Vec<TradeRow>> {
+pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answer<HistoryView> {
     let session = context.load_game(None)?;
     let trades = context.trade_history(None, limit)?;
-    Ok(trades
+
+    let volume = trades
         .iter()
-        .map(|trade| view::trade(trade, &session.currency))
-        .collect())
+        .fold(rust_decimal::Decimal::ZERO, |sum, trade| {
+            safe_invest_core::money::add(sum, trade.total).unwrap_or(sum)
+        });
+
+    Ok(HistoryView {
+        count: trades.len(),
+        volume: view::money(volume, &session.currency),
+        // `trade_history` hands back the most recent first, so the oldest is
+        // the last row — and with a limit it is the oldest *shown*, which is
+        // what the sentence beside it claims.
+        since: trades.last().map(|trade| view::date(trade.timestamp)),
+        trades: trades
+            .iter()
+            .map(|trade| view::trade(trade, &session.currency))
+            .collect(),
+    })
 }
 
 // ----------------------------------------------------------------- market
