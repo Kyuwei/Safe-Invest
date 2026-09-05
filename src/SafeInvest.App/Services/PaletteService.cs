@@ -65,7 +65,7 @@ internal static class PaletteService
 
     public static void ApplyTheme(string theme)
     {
-        if (App.MainWindow?.Content is FrameworkElement root)
+        if (App.RootWindow?.Content is FrameworkElement root)
         {
             root.RequestedTheme = theme switch
             {

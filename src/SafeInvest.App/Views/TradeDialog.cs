@@ -179,6 +179,15 @@ internal sealed class TradeDialog : ContentDialog
     private decimal HeldQuantity =>
         _session.Session?.FindHolding(_asset.Kind, _asset.Symbol)?.Quantity ?? 0m;
 
+    /// <summary>
+    /// A NumberBox reports double.NaN while its field is empty, and casting that to decimal
+    /// throws. Empty simply means "no amount given" here.
+    /// </summary>
+    private decimal TypedAmount =>
+        double.IsNaN(_amountBox.Value) || double.IsInfinity(_amountBox.Value)
+            ? 0m
+            : (decimal)_amountBox.Value;
+
     private void UpdateHolding()
     {
         decimal cash = _session.Snapshot?.Cash ?? 0m;
@@ -198,8 +207,8 @@ internal sealed class TradeDialog : ContentDialog
             return;
         }
 
-        decimal amount = (decimal)_amountBox.Value;
-        if (amount <= 0m || double.IsNaN(_amountBox.Value))
+        decimal amount = TypedAmount;
+        if (amount <= 0m)
         {
             _estimateText.Text = "Indiquez un montant à investir.";
             return;
@@ -241,7 +250,13 @@ internal sealed class TradeDialog : ContentDialog
 
         try
         {
-            decimal amount = (decimal)_amountBox.Value;
+            decimal amount = TypedAmount;
+            if (amount <= 0m)
+            {
+                ShowError("Montant manquant", "Indiquez le montant que vous voulez investir.");
+                return;
+            }
+
             await _session.BuyAsync(_asset, quantity: null, amount: amount, rationale: null);
 
             TradeWasMade = true;
@@ -268,7 +283,7 @@ internal sealed class TradeDialog : ContentDialog
 
         try
         {
-            decimal amount = (decimal)_amountBox.Value;
+            decimal amount = TypedAmount;
 
             // No amount typed means "close the position" — the common case when selling.
             if (amount <= 0m)

@@ -17,15 +17,18 @@ public partial class App : Application
         UnhandledException += OnUnhandledException;
     }
 
-    /// <summary>The window everything is hosted in; dialogs need its XamlRoot.</summary>
-    public static Window? MainWindow { get; private set; }
+    /// <summary>
+    /// The window everything is hosted in. Named RootWindow rather than MainWindow so the
+    /// property does not shadow the MainWindow type inside this class.
+    /// </summary>
+    public static Window? RootWindow { get; private set; }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         AppServices.Initialize();
 
         _window = new MainWindow();
-        MainWindow = _window;
+        RootWindow = _window;
         _window.Activate();
     }
 

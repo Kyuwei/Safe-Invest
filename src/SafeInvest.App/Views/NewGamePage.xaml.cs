@@ -65,7 +65,7 @@ public sealed partial class NewGamePage : Page
             StartingCashBox.Value = amount;
 
             // Keep the goal a stretch rather than something already reached.
-            if (GoalAmountBox.Value <= amount)
+            if (double.IsNaN(GoalAmountBox.Value) || GoalAmountBox.Value <= amount)
             {
                 GoalAmountBox.Value = amount * 1.5d;
             }
@@ -98,14 +98,20 @@ public sealed partial class NewGamePage : Page
             return;
         }
 
-        decimal start = (decimal)StartingCashBox.Value;
-        decimal target = (decimal)GoalAmountBox.Value;
+        decimal start = ReadAmount(StartingCashBox);
+        decimal target = ReadAmount(GoalAmountBox);
         DateTimeOffset deadline = GoalDatePicker.Date ?? DateTimeOffset.Now.AddYears(1);
         double years = Math.Max((deadline - DateTimeOffset.Now).TotalDays, 0d) / 365.25d;
 
-        if (double.IsNaN(start) || start <= 0m)
+        if (start <= 0m)
         {
             GoalPreviewText.Text = "Renseignez d'abord un capital de départ.";
+            return;
+        }
+
+        if (target <= 0m)
+        {
+            GoalPreviewText.Text = "Renseignez le montant que vous voulez atteindre.";
             return;
         }
 
@@ -140,6 +146,13 @@ public sealed partial class NewGamePage : Page
             $"demande environ {Formatting.Percent(rate)} par an. {verdict}";
     }
 
+    /// <summary>
+    /// A NumberBox reports double.NaN while its field is empty, and casting that to decimal
+    /// throws. Every read of a NumberBox goes through here.
+    /// </summary>
+    private static decimal ReadAmount(NumberBox box) =>
+        double.IsNaN(box.Value) || double.IsInfinity(box.Value) ? 0m : (decimal)box.Value;
+
     private string SelectedCurrency() =>
         CurrencyBox.SelectedItem is ComboBoxItem { Tag: string code } ? code : "EUR";
 
@@ -151,7 +164,7 @@ public sealed partial class NewGamePage : Page
         {
             GameSessionService session = AppServices.Get<GameSessionService>();
 
-            decimal? goalAmount = GoalSwitch.IsOn ? (decimal)GoalAmountBox.Value : null;
+            decimal? goalAmount = GoalSwitch.IsOn ? ReadAmount(GoalAmountBox) : null;
             DateTimeOffset? goalDeadline = GoalSwitch.IsOn
                 ? (GoalDatePicker.Date ?? DateTimeOffset.Now.AddYears(1))
                 : null;
@@ -159,9 +172,9 @@ public sealed partial class NewGamePage : Page
             await session.CreateAsync(
                 playerName: PlayerNameBox.Text,
                 playerKind: _isAi ? PlayerKind.Ai : PlayerKind.Human,
-                startingCash: (decimal)StartingCashBox.Value,
+                startingCash: ReadAmount(StartingCashBox),
                 currency: SelectedCurrency(),
-                feePercent: (decimal)FeeBox.Value,
+                feePercent: ReadAmount(FeeBox),
                 goalAmount: goalAmount,
                 goalDeadline: goalDeadline);
 

@@ -8,11 +8,12 @@
     <RootNamespace>SafeInvest.App</RootNamespace>
     <AssemblyName>SafeInvest</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
-    <!-- Fixed so `dotnet build` on the solution works: a self-contained Windows App SDK
-         app cannot be built without a runtime identifier. -->
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- A self-contained Windows App SDK app cannot be built without a runtime identifier,
+         so default to x64 while still letting `dotnet publish -r win-arm64` override it.
+         Note: no <Platforms> here — declaring it makes a solution build pick x86 as the
+         PlatformTarget, which then contradicts the RID (NETSDK1032). -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <!-- Unpackaged: the app runs from a folder, no certificate and no MSIX install. -->
     <WindowsPackageType>None</WindowsPackageType>

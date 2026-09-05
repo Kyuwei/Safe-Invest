@@ -64,7 +64,7 @@ public sealed class SparklineControl : UserControl
         const double padding = 4d;
         double usableHeight = Math.Max(height - (padding * 2), 1d);
 
-        PointCollection linePoints = [];
+        List<Point> linePoints = [];
         for (int i = 0; i < _values.Count; i++)
         {
             double x = i * stepX;

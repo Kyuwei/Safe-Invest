@@ -111,7 +111,9 @@ public sealed partial class SettingsPage : Page
             _settings.ForceSimulatedMode = SimulatedSwitch.IsOn;
             _settings.ColorBlindPalette = ColorBlindSwitch.IsOn;
             _settings.Theme = TagOf(ThemeBox) ?? "Default";
-            _settings.RefreshIntervalSeconds = (int)RefreshBox.Value;
+            _settings.RefreshIntervalSeconds = double.IsNaN(RefreshBox.Value)
+                ? 60
+                : (int)Math.Clamp(RefreshBox.Value, 15d, 3600d);
 
             StoreKey("coingecko", CoinGeckoKeyBox);
             StoreKey("coinmarketcap", CoinMarketCapKeyBox);
@@ -159,10 +161,17 @@ public sealed partial class SettingsPage : Page
         return order;
     }
 
-    private async void OnOpenFolderClick(object sender, RoutedEventArgs e)
+    private void OnOpenFolderClick(object sender, RoutedEventArgs e)
     {
         SafeInvestPaths.EnsureCreated();
-        await Windows.System.Launcher.LaunchFolderPathAsync(SafeInvestPaths.Root);
+
+        // Explorer directly rather than Windows.System.Launcher: the launcher APIs expect
+        // package identity, which an unpackaged app does not have.
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = SafeInvestPaths.Root,
+            UseShellExecute = true,
+        });
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e)
