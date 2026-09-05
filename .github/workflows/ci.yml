@@ -72,6 +72,22 @@ jobs:
       - name: Compiler la solution complète
         run: dotnet build Safe-Invest.sln -c Release
 
+      - name: Diagnostic du compilateur XAML
+        # Le compilateur XAML s'exécute dans un processus à part et rend ses diagnostics
+        # dans un fichier JSON. Quand MSBuild n'arrive pas à formater le message (WMC9999),
+        # ce fichier reste la seule trace de l'erreur réelle.
+        if: failure()
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Path src/SafeInvest.App/obj -Filter *.json -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Name -match 'utput|nput' }
+          if (-not $files) { Write-Host "Aucun fichier de diagnostic produit." ; exit 0 }
+          foreach ($file in $files) {
+            Write-Host "=== $($file.FullName)"
+            Get-Content $file.FullName -Raw
+            Write-Host ""
+          }
+
       - name: Publier l'application (win-x64)
         run: >
           dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
