@@ -37,6 +37,12 @@ safe-invest.exe doctor
 Si le diagnostic passe, le serveur démarrera. Les journaux du serveur partent sur la
 sortie d'erreur ; la sortie standard ne transporte que le protocole.
 
+Sous Windows, l'invite de commandes n'attend pas une application fenêtrée : le texte du
+diagnostic s'affiche bien, parfois juste après le retour du prompt. Utilisez
+`start /wait safe-invest.exe doctor` si vous voulez que le terminal patiente. Cela ne
+concerne que les sous-commandes console — un client MCP, lui, communique par des tuyaux
+et attend correctement.
+
 ## Les quatorze outils
 
 ### Parties

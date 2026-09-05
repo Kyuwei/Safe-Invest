@@ -40,6 +40,11 @@ safe-invest.exe doctor
 affiche où sont vos données, si le moteur web est présent et quelles sources de cours
 sont configurées.
 
+> Une particularité de Windows : Safe Invest est une application fenêtrée, donc le double-clic
+> n'ouvre pas de console noire — mais en contrepartie l'invite de commandes **ne l'attend pas**.
+> Le texte s'affiche bien, parfois juste après que le prompt soit revenu. Pour que le terminal
+> attende vraiment : `start /wait safe-invest.exe doctor`.
+
 ## Comment c'est construit
 
 Rust, un seul exécutable, et pas de dépendance npm dans ce qui est livré.

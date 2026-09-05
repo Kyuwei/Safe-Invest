@@ -48,13 +48,51 @@ Step "SHA-256 : $hash"
 $data = Join-Path $env:RUNNER_TEMP "safe-invest-verify"
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 
+<#
+.SYNOPSIS
+    Runs a console subcommand and returns what it printed.
+
+.DESCRIPTION
+    A GUI-subsystem executable is *not* awaited by the shell: `& $exe --version`
+    returns at once and leaves `$LASTEXITCODE` unset, so the obvious check
+    reports a failure that never happened. `Start-Process -Wait` waits properly
+    and hands back a real exit code, and redirecting the output lets this script
+    assert that something was actually printed — a stronger check than the exit
+    code alone, and the one that would have caught the null-handle panic.
+#>
+function Invoke-Subcommand([string[]] $Arguments) {
+    $out = Join-Path $data "out.txt"
+    $err = Join-Path $data "err.txt"
+
+    $process = Start-Process -FilePath (Resolve-Path $Exe).Path `
+        -ArgumentList $Arguments -Wait -PassThru -NoNewWindow `
+        -RedirectStandardOutput $out -RedirectStandardError $err
+
+    $text = if (Test-Path $out) { (Get-Content $out -Raw) } else { "" }
+    $errors = if (Test-Path $err) { (Get-Content $err -Raw) } else { "" }
+
+    if ($process.ExitCode -ne 0) {
+        throw "$($Arguments -join ' ') a renvoyé $($process.ExitCode)`n$errors"
+    }
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "$($Arguments -join ' ') n'a rien affiché — la sortie standard est-elle utilisable ?"
+    }
+    return $text.Trim()
+}
+
 Step "--version"
-& $Exe --version
-if ($LASTEXITCODE -ne 0) { throw "--version a renvoyé $LASTEXITCODE" }
+$version = Invoke-Subcommand @("--version")
+Write-Host "    $version"
+if ($version -notmatch "^Safe Invest \d+\.\d+\.\d+") {
+    throw "--version a répondu quelque chose d'inattendu : $version"
+}
 
 Step "doctor"
-& $Exe doctor --data-dir $data --demo
-if ($LASTEXITCODE -ne 0) { throw "doctor a renvoyé $LASTEXITCODE" }
+$report = Invoke-Subcommand @("doctor", "--data-dir", $data, "--demo")
+foreach ($line in $report -split "`n" | Select-Object -First 6) { Write-Host "    $line" }
+if ($report -notmatch "moteur web") {
+    throw "doctor n'a pas produit son diagnostic complet"
+}
 
 # ------------------------------------------------------------------ MCP mode
 
