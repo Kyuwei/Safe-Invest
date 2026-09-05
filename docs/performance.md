@@ -16,7 +16,8 @@ Machine de test : Ubuntu 24.04, 4 cœurs, sans accélération graphique, build
 
 | Mesure | Valeur |
 |---|---|
-| Exécutable | **9,6 Mo** — un seul fichier |
+| Exécutable (Linux) | **9,6 Mo** — un seul fichier |
+| Exécutable (Windows, mesuré en CI) | **7,6 Mo** |
 | dont interface embarquée | 80 Ko |
 | Démarrage `--version` | 24 ms (moyenne sur 10) |
 | Démarrage `doctor` | 22 ms |
@@ -57,6 +58,11 @@ est inatteignable ; sans `strip`, la table des symboles doublait la taille du
 fichier. `opt-level = "s"` plutôt que `3` parce que rien ici n'est limité par
 le calcul : le programme attend le réseau.
 
+Le LTO complet a été comparé au LTO « thin », qui compile bien plus vite :
+11,6 Mo contre 9,97 Mo, soit **16 % de plus**. Pour un livrable dont tout
+l'intérêt est d'être un seul petit fichier, les six minutes de compilation
+supplémentaires en valent la peine — elles ne sont payées qu'en CI.
+
 **Un exécutable unique, pas d'installateur.** L'interface est un dossier de
 fichiers statiques compilé dans le binaire. Pas de runtime à déployer à côté,
 pas de dossier `_files`, rien à désinstaller.
@@ -68,6 +74,13 @@ une machine à seize cœurs cela évite de garder en mémoire quatorze piles de
 fils qui ne servent à rien. *Mesure honnête : sur la machine de test à quatre
 cœurs, la différence n'est pas visible. Le gain est un plafond, pas une
 économie constatée ici.*
+
+**Les cours vont par six, pas un par un.** Yahoo, Finnhub et le lecteur de
+pages cotent symbole par symbole. En série, un tableau de vingt lignes
+coûtait vingt allers-retours réseau à la file. Ils partent maintenant par
+six — largement dans le budget annoncé par chaque source — et une source
+qui répond pour certains symboles et pas pour d'autres rend ce qu'elle a
+au lieu de tout jeter.
 
 **Un cache de cours à durée de vie.** Sans lui, un tableau de bord de huit
 lignes déclencherait huit requêtes par minute et par source, et brûlerait un

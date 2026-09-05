@@ -46,6 +46,7 @@ Rust, un seul exécutable, et pas de dépendance npm dans ce qui est livré.
 
 | Bibliothèque | Rôle |
 |---|---|
+| `crates/platform` | Le code système : DPAPI, console. **Tout le `unsafe` du projet est là**, et nulle part ailleurs |
 | `crates/core` | Le domaine et les règles : actifs, ordres, coût moyen, frais, objectif, sauvegardes |
 | `crates/market` | Les cours réels : six sources en cascade, cache, limiteur de débit, conversion de devises |
 | `crates/service` | Les opérations, écrites une fois : créer une partie, coter, acheter, vendre |
@@ -124,10 +125,19 @@ Il faut Rust — la chaîne exacte est épinglée dans `rust-toolchain.toml`, `r
 l'installe tout seul.
 
 ```bash
-cargo test --workspace          # 130 tests, sans réseau
+cargo test --workspace          # 141 tests, sans réseau
+node --test crates/app/ui/tests/*.test.js   # les tests de l'interface
 cargo clippy --workspace --all-targets
 cargo fmt --all
 cargo build --release           # produit un seul exécutable
+```
+
+Le code spécifique à Windows se vérifie depuis n'importe quelle machine, parce qu'il est
+isolé dans un crate qui ne dépend que de `windows-sys` :
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo clippy -p safe-invest-platform -p safe-invest-core --target x86_64-pc-windows-msvc
 ```
 
 Sous Linux, la fenêtre passe par WebKitGTK :
