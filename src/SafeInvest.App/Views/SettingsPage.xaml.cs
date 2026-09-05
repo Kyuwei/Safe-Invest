@@ -126,6 +126,14 @@ public sealed partial class SettingsPage : Page
             PaletteService.Apply(_settings.ColorBlindPalette);
             PaletteService.ApplyTheme(_settings.Theme);
 
+            // The palette is resolved when a screen renders, so nudge the session to
+            // redraw; otherwise the new colours only appear on the next price refresh.
+            GameSessionService session = AppServices.Get<GameSessionService>();
+            if (session.Session is not null)
+            {
+                await session.RefreshAsync();
+            }
+
             RefreshSources();
             Show(InfoBarSeverity.Success, "Réglages enregistrés", "Les nouvelles sources sont actives immédiatement.");
         }
