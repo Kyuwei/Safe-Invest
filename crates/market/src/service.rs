@@ -13,7 +13,7 @@ use crate::providers::{
 use jiff::Timestamp;
 use safe_invest_core::model::{Asset, AssetKind, Quote};
 use safe_invest_core::settings::{AppSettings, SettingsService};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -250,29 +250,53 @@ impl MarketDataService {
 
     /// Searches every source that can answer, keeping the first result for each
     /// symbol so the preferred source wins ties.
+    ///
+    /// Each source is asked at most once, with the caller's own filter. Shares
+    /// and trackers share a chain, so asking per kind would send Yahoo the same
+    /// question twice — and asking it for shares only would silently drop the
+    /// trackers from the answer.
     pub async fn search(&self, query: &str, kind: Option<AssetKind>) -> Vec<Asset> {
         let mut found: Vec<Asset> = crate::catalog::search(query, kind);
-        let mut seen: std::collections::HashSet<String> = found.iter().map(Asset::key).collect();
+        let mut seen: HashSet<String> = found.iter().map(Asset::key).collect();
 
-        let kinds: Vec<AssetKind> = kind.map_or_else(|| AssetKind::ALL.to_vec(), |k| vec![k]);
-        for kind in kinds {
-            for provider in self.chain_for(kind) {
-                if provider.is_simulated() {
-                    continue;
+        let wanted: Vec<AssetKind> = kind.map_or_else(|| AssetKind::ALL.to_vec(), |k| vec![k]);
+
+        let mut chain: Vec<Arc<dyn QuoteProvider>> = Vec::new();
+        let mut listed: HashSet<&'static str> = HashSet::new();
+        for kind in &wanted {
+            for provider in self.chain_for(*kind) {
+                if !provider.is_simulated() && listed.insert(provider.id()) {
+                    chain.push(provider);
                 }
-                match provider.search(query, Some(kind)).await {
-                    Ok(results) => {
-                        self.record(provider.id(), Ok(()));
-                        for asset in results {
-                            if seen.insert(asset.key()) {
-                                found.push(asset);
-                            }
+            }
+        }
+
+        let mut covered: HashSet<AssetKind> = HashSet::new();
+        for provider in chain {
+            // Everything this source could add is already covered by one that
+            // answered, so there is nothing to gain from asking it too.
+            let adds_something = wanted
+                .iter()
+                .any(|kind| provider.supports(*kind) && !covered.contains(kind));
+            if !adds_something {
+                continue;
+            }
+
+            match provider.search(query, kind).await {
+                Ok(results) => {
+                    self.record(provider.id(), Ok(()));
+                    for asset in results {
+                        if seen.insert(asset.key()) {
+                            found.push(asset);
                         }
-                        // One working source per kind is enough for a search box.
-                        break;
                     }
-                    Err(error) => self.record(provider.id(), Err(&error)),
+                    for kind in &wanted {
+                        if provider.supports(*kind) {
+                            covered.insert(*kind);
+                        }
+                    }
                 }
+                Err(error) => self.record(provider.id(), Err(&error)),
             }
         }
 

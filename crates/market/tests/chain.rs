@@ -307,3 +307,158 @@ async fn a_source_that_failed_is_reported_as_unhealthy_with_a_reason() {
 fn market_fx(market: &MarketDataService) -> &FxRates {
     market.fx()
 }
+
+// ------------------------------------------------- partial results & search
+
+/// A source that answers for some symbols, refuses for others, and counts how
+/// many times it was asked to search.
+#[derive(Debug)]
+struct PickySource {
+    id: &'static str,
+    known: Vec<&'static str>,
+    kinds: Vec<AssetKind>,
+    searches: AtomicUsize,
+}
+
+impl PickySource {
+    fn new(id: &'static str, known: &[&'static str], kinds: &[AssetKind]) -> Arc<Self> {
+        Arc::new(Self {
+            id,
+            known: known.to_vec(),
+            kinds: kinds.to_vec(),
+            searches: AtomicUsize::new(0),
+        })
+    }
+}
+
+#[async_trait]
+impl QuoteProvider for PickySource {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn label(&self) -> &'static str {
+        "Source difficile"
+    }
+
+    fn supports(&self, kind: AssetKind) -> bool {
+        self.kinds.contains(&kind)
+    }
+
+    async fn quotes(&self, assets: &[Asset], _currency: &str) -> ProviderResult<Vec<Quote>> {
+        let mut quotes = Vec::new();
+        let mut refused = false;
+
+        for asset in assets {
+            if self.known.contains(&asset.symbol.as_str()) {
+                quotes.push(Quote {
+                    symbol: asset.symbol.clone(),
+                    kind: asset.kind,
+                    price: d("100"),
+                    currency: "EUR".into(),
+                    as_of: Timestamp::now(),
+                    source_id: self.id.to_owned(),
+                    is_simulated: false,
+                    name: Some(asset.name.clone()),
+                    change_percent_24h: None,
+                    market_cap: None,
+                    volume_24h: None,
+                });
+            } else {
+                refused = true;
+            }
+        }
+
+        // The behaviour under test: what a source does when it answered for
+        // some symbols and failed on others.
+        if quotes.is_empty() && refused {
+            return Err(ProviderError::RateLimited { provider: self.id });
+        }
+        Ok(quotes)
+    }
+
+    async fn search(&self, _query: &str, kind: Option<AssetKind>) -> ProviderResult<Vec<Asset>> {
+        self.searches.fetch_add(1, Ordering::SeqCst);
+        Ok(self
+            .kinds
+            .iter()
+            .filter(|k| kind.is_none_or(|wanted| wanted == **k))
+            .map(|k| Asset::new(format!("{}-{}", self.id, k.as_str()), "Trouvé", *k))
+            .collect())
+    }
+}
+
+#[tokio::test]
+async fn a_source_that_answers_for_some_symbols_keeps_those_answers() {
+    // Without this, one unknown ticker in a batch costs every other line in
+    // that batch its price.
+    let picky = PickySource::new("picky", &["BTC"], &[AssetKind::Crypto]);
+    let market = service(
+        vec![picky, Arc::new(SimulatedProvider::new())],
+        &["picky", "simulated"],
+    );
+
+    let batch = market
+        .quotes(
+            &[btc(), Asset::new("NOPE", "Inconnu", AssetKind::Crypto)],
+            "EUR",
+        )
+        .await;
+
+    assert_eq!(batch.quotes["crypto:BTC"].source_id, "picky");
+    assert_eq!(
+        batch.quotes["crypto:NOPE"].source_id, "simulated",
+        "le symbole inconnu doit retomber sur la source suivante"
+    );
+}
+
+#[tokio::test]
+async fn a_source_that_answered_nothing_is_marked_unhealthy() {
+    let picky = PickySource::new("picky", &[], &[AssetKind::Crypto]);
+    let market = service(
+        vec![picky, Arc::new(SimulatedProvider::new())],
+        &["picky", "simulated"],
+    );
+
+    market.quotes(&[btc()], "EUR").await;
+
+    let statuses = market.statuses();
+    let picky = statuses.iter().find(|s| s.id == "picky").unwrap();
+    assert_eq!(picky.healthy, Some(false), "un échec total doit se voir");
+}
+
+#[tokio::test]
+async fn a_search_asks_each_source_once_even_when_it_covers_two_kinds() {
+    // Shares and trackers share a chain. Asking per kind would send the same
+    // question twice for one keystroke.
+    let equities = PickySource::new("equities", &[], &[AssetKind::Stock, AssetKind::Etf]);
+    let market = service(
+        vec![equities.clone(), Arc::new(SimulatedProvider::new())],
+        &["equities", "simulated"],
+    );
+
+    let found = market.search("quoi que ce soit", None).await;
+
+    assert_eq!(equities.searches.load(Ordering::SeqCst), 1);
+    // And asking once must not lose a kind: both come back.
+    assert!(found.iter().any(|a| a.kind == AssetKind::Stock));
+    assert!(
+        found.iter().any(|a| a.kind == AssetKind::Etf),
+        "demander une seule fois ne doit pas faire disparaître les ETF"
+    );
+}
+
+#[tokio::test]
+async fn a_search_narrowed_to_one_kind_only_returns_that_kind() {
+    let equities = PickySource::new("equities", &[], &[AssetKind::Stock, AssetKind::Etf]);
+    let market = service(
+        vec![equities, Arc::new(SimulatedProvider::new())],
+        &["equities", "simulated"],
+    );
+
+    let found = market
+        .search("quoi que ce soit", Some(AssetKind::Etf))
+        .await;
+
+    assert!(found.iter().all(|a| a.kind == AssetKind::Etf));
+}

@@ -10,6 +10,7 @@
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::HttpClient;
 use crate::providers::coingecko::urlencode;
+use crate::providers::collect_quotes;
 use crate::ratelimit::TokenBucket;
 use async_trait::async_trait;
 use jiff::Timestamp;
@@ -105,40 +106,40 @@ impl crate::providers::QuoteProvider for ScrapeProvider {
     }
 
     async fn quotes(&self, assets: &[Asset], _currency: &str) -> ProviderResult<Vec<Quote>> {
-        let mut quotes = Vec::new();
+        // Deliberately one page at a time: scraping a public site is done as a
+        // polite guest, not as a crawler.
+        let fetches: Vec<_> = assets
+            .iter()
+            .map(|asset| async move {
+                let Some(recipe) = Self::recipe_for(asset) else {
+                    return Ok(None);
+                };
+                self.budget().await?;
 
-        for asset in assets {
-            let Some(recipe) = Self::recipe_for(asset) else {
-                continue;
-            };
-            self.budget().await?;
+                let html = self
+                    .http
+                    .get_text(ID, &recipe.url, &[("accept", "text/html")])
+                    .await?;
 
-            let html = self
-                .http
-                .get_text(ID, &recipe.url, &[("accept", "text/html")])
-                .await?;
-            let Some(price) = extract_price(&html, recipe.selectors) else {
-                continue;
-            };
+                Ok(extract_price(&html, recipe.selectors).map(|price| Quote {
+                    symbol: asset.symbol.clone(),
+                    kind: asset.kind,
+                    price,
+                    currency: recipe.currency.to_owned(),
+                    as_of: Timestamp::now(),
+                    source_id: ID.to_owned(),
+                    is_simulated: false,
+                    name: Some(asset.name.clone()),
+                    // A scraped page gives a price and little else that can be
+                    // trusted; inventing a 24 h change would be worse than none.
+                    change_percent_24h: None,
+                    market_cap: None,
+                    volume_24h: None,
+                }))
+            })
+            .collect();
 
-            quotes.push(Quote {
-                symbol: asset.symbol.clone(),
-                kind: asset.kind,
-                price,
-                currency: recipe.currency.to_owned(),
-                as_of: Timestamp::now(),
-                source_id: ID.to_owned(),
-                is_simulated: false,
-                name: Some(asset.name.clone()),
-                // A scraped page gives a price and little else that can be
-                // trusted; inventing a 24 h change would be worse than none.
-                change_percent_24h: None,
-                market_cap: None,
-                volume_24h: None,
-            });
-        }
-
-        Ok(quotes)
+        collect_quotes(fetches, 1).await
     }
 }
 

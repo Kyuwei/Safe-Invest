@@ -7,10 +7,11 @@
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::HttpClient;
 use crate::providers::coingecko::urlencode;
-use crate::providers::{PricePoint, QuoteProvider, decimal_from_json};
+use crate::providers::{PricePoint, QuoteProvider, collect_quotes, decimal_from_json};
 use crate::ratelimit::TokenBucket;
 use async_trait::async_trait;
 use jiff::Timestamp;
+use rust_decimal::Decimal;
 use safe_invest_core::model::{Asset, AssetKind, Quote};
 use serde_json::Value;
 
@@ -19,6 +20,10 @@ pub const ID: &str = "yahoo";
 const CHART: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
 const SEARCH: &str = "https://query1.finance.yahoo.com/v1/finance/search";
 const PER_MINUTE: u32 = 60;
+
+/// How many symbols to ask about at once. Enough to make a twenty-line
+/// dashboard feel instant, few enough to stay a polite caller.
+const CONCURRENCY: usize = 6;
 
 /// Yahoo turns away callers that look like a script. This is the minimum set of
 /// headers that gets a normal answer.
@@ -70,6 +75,52 @@ impl YahooProvider {
             .map_err(|_| ProviderError::RateLimited { provider: ID })
     }
 
+    /// Builds a quote from one chart payload, or `None` when the payload does
+    /// not carry a usable price.
+    fn quote_from(asset: &Asset, result: &Value) -> Option<Quote> {
+        let meta = result.get("meta")?;
+        let price = meta.get("regularMarketPrice").and_then(decimal_from_json)?;
+
+        let previous = meta
+            .get("chartPreviousClose")
+            .or_else(|| meta.get("previousClose"))
+            .and_then(decimal_from_json);
+
+        let change_percent = previous.filter(|p| !p.is_zero()).and_then(|previous| {
+            price
+                .checked_sub(previous)?
+                .checked_div(previous)?
+                .checked_mul(Decimal::ONE_HUNDRED)
+                .map(|d| d.round_dp(2))
+        });
+
+        Some(Quote {
+            symbol: asset.symbol.clone(),
+            kind: asset.kind,
+            price,
+            // Yahoo quotes in the listing's own currency. The service converts;
+            // claiming the requested currency here would be a lie that silently
+            // multiplies the player's portfolio.
+            currency: meta
+                .get("currency")
+                .and_then(Value::as_str)
+                .unwrap_or("USD")
+                .to_uppercase(),
+            as_of: Timestamp::now(),
+            source_id: ID.to_owned(),
+            is_simulated: false,
+            name: meta
+                .get("longName")
+                .or_else(|| meta.get("shortName"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| Some(asset.name.clone())),
+            change_percent_24h: change_percent,
+            market_cap: None,
+            volume_24h: meta.get("regularMarketVolume").and_then(decimal_from_json),
+        })
+    }
+
     async fn chart(&self, ticker: &str, range: &str, interval: &str) -> ProviderResult<Value> {
         let url = format!(
             "{}/{}?range={range}&interval={interval}",
@@ -102,63 +153,20 @@ impl QuoteProvider for YahooProvider {
     }
 
     async fn quotes(&self, assets: &[Asset], _currency: &str) -> ProviderResult<Vec<Quote>> {
-        let mut quotes = Vec::new();
-
         // One request per symbol: the batch endpoint is the one that needs a
-        // crumb. A dashboard holds a handful of lines, and the connection pool
-        // keeps the cost to one handshake.
-        for asset in assets.iter().filter(|a| a.kind.is_equity()) {
-            self.budget().await?;
-            let ticker = Self::ticker_of(asset);
-            let result = self.chart(&ticker, "2d", "1d").await?;
+        // crumb. `fetch_each` issues a few at once and keeps whatever answers,
+        // so one unknown ticker does not cost the others their price.
+        let fetches: Vec<_> = assets
+            .iter()
+            .filter(|asset| asset.kind.is_equity())
+            .map(|asset| async move {
+                self.budget().await?;
+                let result = self.chart(&Self::ticker_of(asset), "2d", "1d").await?;
+                Ok(Self::quote_from(asset, &result))
+            })
+            .collect();
 
-            let Some(meta) = result.get("meta") else {
-                continue;
-            };
-            let Some(price) = meta.get("regularMarketPrice").and_then(decimal_from_json) else {
-                continue;
-            };
-            let previous = meta
-                .get("chartPreviousClose")
-                .or_else(|| meta.get("previousClose"))
-                .and_then(decimal_from_json);
-
-            let change_percent = previous.filter(|p| !p.is_zero()).and_then(|previous| {
-                price
-                    .checked_sub(previous)?
-                    .checked_div(previous)?
-                    .checked_mul(rust_decimal::Decimal::ONE_HUNDRED)
-                    .map(|d| d.round_dp(2))
-            });
-
-            quotes.push(Quote {
-                symbol: asset.symbol.clone(),
-                kind: asset.kind,
-                price,
-                // Yahoo quotes in the listing's own currency. The service
-                // converts; claiming the requested currency here would be a lie
-                // that silently multiplies the player's portfolio.
-                currency: meta
-                    .get("currency")
-                    .and_then(Value::as_str)
-                    .unwrap_or("USD")
-                    .to_uppercase(),
-                as_of: Timestamp::now(),
-                source_id: ID.to_owned(),
-                is_simulated: false,
-                name: meta
-                    .get("longName")
-                    .or_else(|| meta.get("shortName"))
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .or_else(|| Some(asset.name.clone())),
-                change_percent_24h: change_percent,
-                market_cap: None,
-                volume_24h: meta.get("regularMarketVolume").and_then(decimal_from_json),
-            });
-        }
-
-        Ok(quotes)
+        collect_quotes(fetches, CONCURRENCY).await
     }
 
     async fn search(&self, query: &str, kind: Option<AssetKind>) -> ProviderResult<Vec<Asset>> {

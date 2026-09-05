@@ -7,11 +7,12 @@ pub mod scrape;
 pub mod simulated;
 pub mod yahoo;
 
-use crate::error::ProviderResult;
+use crate::error::{ProviderError, ProviderResult};
 use async_trait::async_trait;
 use jiff::Timestamp;
 use rust_decimal::Decimal;
 use safe_invest_core::model::{Asset, AssetKind, Quote};
+use std::future::Future;
 
 /// One point on a price history.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -68,6 +69,56 @@ pub trait QuoteProvider: Send + Sync + std::fmt::Debug {
     ) -> ProviderResult<Vec<PricePoint>> {
         let _ = (asset, days, currency);
         Ok(Vec::new())
+    }
+}
+
+/// Fetches one quote per asset, a few at a time, and keeps what came back.
+///
+/// Two rules, both learned from the shape of the failure they prevent:
+///
+/// A source that answers for some symbols and not others must return what it
+/// has. The chain asks the next source for the rest, so discarding six good
+/// prices because a seventh symbol was unknown would cost those six lines
+/// their price for nothing.
+///
+/// But a source that answered *nothing* and hit an error must say so, rather
+/// than report an empty success — otherwise the status light stays green while
+/// the source is down.
+pub(crate) async fn collect_quotes<Fut>(
+    fetches: Vec<Fut>,
+    concurrency: usize,
+) -> ProviderResult<Vec<Quote>>
+where
+    Fut: Future<Output = ProviderResult<Option<Quote>>>,
+{
+    use futures_util::StreamExt as _;
+
+    let outcomes: Vec<ProviderResult<Option<Quote>>> = futures_util::stream::iter(fetches)
+        // One request per symbol is what these endpoints allow; issuing a few
+        // at once turns a twenty-symbol refresh from seconds into fractions of
+        // one, without exceeding any provider's stated budget.
+        .buffered(concurrency.max(1))
+        .collect()
+        .await;
+
+    let mut quotes = Vec::with_capacity(outcomes.len());
+    let mut failure: Option<ProviderError> = None;
+
+    for outcome in outcomes {
+        match outcome {
+            Ok(Some(quote)) => quotes.push(quote),
+            Ok(None) => {}
+            Err(error) => {
+                if failure.is_none() {
+                    failure = Some(error);
+                }
+            }
+        }
+    }
+
+    match failure {
+        Some(error) if quotes.is_empty() => Err(error),
+        _ => Ok(quotes),
     }
 }
 

@@ -3,7 +3,7 @@
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::HttpClient;
 use crate::providers::coingecko::urlencode;
-use crate::providers::{QuoteProvider, decimal_from_json};
+use crate::providers::{QuoteProvider, collect_quotes, decimal_from_json};
 use crate::ratelimit::TokenBucket;
 use async_trait::async_trait;
 use jiff::Timestamp;
@@ -15,6 +15,7 @@ pub const ID: &str = "finnhub";
 
 const BASE: &str = "https://finnhub.io/api/v1";
 const PER_MINUTE: u32 = 55;
+const CONCURRENCY: usize = 6;
 
 #[derive(Debug)]
 pub struct FinnhubProvider {
@@ -53,6 +54,33 @@ impl FinnhubProvider {
             .await
             .map_err(|_| ProviderError::RateLimited { provider: ID })
     }
+
+    /// Finnhub answers `{"c":0,"pc":0,...}` for an unknown ticker rather than a
+    /// 404. A zero price means "not found", never "worthless".
+    fn quote_from(asset: &Asset, body: &Value) -> Option<Quote> {
+        let price = body.get("c").and_then(decimal_from_json)?;
+        if price <= Decimal::ZERO {
+            return None;
+        }
+
+        Some(Quote {
+            symbol: asset.symbol.clone(),
+            kind: asset.kind,
+            price,
+            // Finnhub's free tier quotes US listings, in dollars.
+            currency: "USD".to_owned(),
+            as_of: Timestamp::now(),
+            source_id: ID.to_owned(),
+            is_simulated: false,
+            name: Some(asset.name.clone()),
+            change_percent_24h: body
+                .get("dp")
+                .and_then(decimal_from_json)
+                .map(|d| d.round_dp(2)),
+            market_cap: None,
+            volume_24h: None,
+        })
+    }
 }
 
 #[async_trait]
@@ -75,53 +103,28 @@ impl QuoteProvider for FinnhubProvider {
 
     async fn quotes(&self, assets: &[Asset], _currency: &str) -> ProviderResult<Vec<Quote>> {
         let key = self.key()?;
-        let mut quotes = Vec::new();
 
-        for asset in assets.iter().filter(|a| a.kind.is_equity()) {
-            self.budget().await?;
-            let symbol = asset
-                .provider_id
-                .clone()
-                .unwrap_or_else(|| asset.symbol.clone());
-            let url = format!(
-                "{}/quote?symbol={}&token={}",
-                self.base,
-                urlencode(&symbol),
-                urlencode(key)
-            );
-            let body: Value = self.http.get_json(ID, &url, &[]).await?;
+        let fetches: Vec<_> = assets
+            .iter()
+            .filter(|asset| asset.kind.is_equity())
+            .map(|asset| async move {
+                self.budget().await?;
+                let symbol = asset
+                    .provider_id
+                    .clone()
+                    .unwrap_or_else(|| asset.symbol.clone());
+                let url = format!(
+                    "{}/quote?symbol={}&token={}",
+                    self.base,
+                    urlencode(&symbol),
+                    urlencode(key)
+                );
+                let body: Value = self.http.get_json(ID, &url, &[]).await?;
+                Ok(Self::quote_from(asset, &body))
+            })
+            .collect();
 
-            // Finnhub answers `{"c":0,"pc":0,...}` for an unknown ticker rather
-            // than a 404. A zero price is "not found", not "worthless".
-            let Some(price) = body.get("c").and_then(decimal_from_json) else {
-                continue;
-            };
-            if price <= Decimal::ZERO {
-                continue;
-            }
-
-            let change_percent = body
-                .get("dp")
-                .and_then(decimal_from_json)
-                .map(|d| d.round_dp(2));
-
-            quotes.push(Quote {
-                symbol: asset.symbol.clone(),
-                kind: asset.kind,
-                price,
-                // Finnhub's free tier quotes US listings, in dollars.
-                currency: "USD".to_owned(),
-                as_of: Timestamp::now(),
-                source_id: ID.to_owned(),
-                is_simulated: false,
-                name: Some(asset.name.clone()),
-                change_percent_24h: change_percent,
-                market_cap: None,
-                volume_24h: None,
-            });
-        }
-
-        Ok(quotes)
+        collect_quotes(fetches, CONCURRENCY).await
     }
 
     async fn search(&self, query: &str, kind: Option<AssetKind>) -> ProviderResult<Vec<Asset>> {

@@ -3469,6 +3469,7 @@ name = "safe-invest-market"
 version = "0.2.0"
 dependencies = [
  "async-trait",
+ "futures-util",
  "jiff",
  "reqwest",
  "rust_decimal",
