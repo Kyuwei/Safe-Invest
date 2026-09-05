@@ -1,15 +1,20 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using SafeInvest.App.Services;
 using SafeInvest.Core.Models;
 
 namespace SafeInvest.App.Converters;
 
-/// <summary>Looks a brush up in the app resources, falling back to a neutral grey.</summary>
+/// <summary>
+/// The single place brushes are resolved by name. Routing every lookup through here is
+/// what lets the colour-blind palette swap the up/down pair without any view knowing.
+/// </summary>
 internal static class PaletteLookup
 {
     public static Brush Brush(string key) =>
-        Application.Current.Resources.TryGetValue(key, out object? found) && found is Brush brush
+        Application.Current.Resources.TryGetValue(PaletteService.Resolve(key), out object? found)
+        && found is Brush brush
             ? brush
             : new SolidColorBrush(Microsoft.UI.Colors.Gray);
 }

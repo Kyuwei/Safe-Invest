@@ -35,6 +35,7 @@ public sealed class PositionItem
             ? "24 h : —"
             : $"24 h : {Formatting.Percent(position.ChangePercent24h)}";
         WeightText = $"{position.WeightPercent:N1} % du portefeuille";
+        DetailsText = $"{QuantityText} unités à {AverageCostText} en moyenne · {WeightText}";
         Direction = position.Direction;
         IsSimulated = position.IsSimulated;
         SourceText = position.IsSimulated
@@ -67,6 +68,12 @@ public sealed class PositionItem
     public string Change24hText { get; }
 
     public string WeightText { get; }
+
+    /// <summary>
+    /// The whole secondary line, composed here rather than from several &lt;Run&gt; fragments
+    /// in the template: one binding is both cheaper and easier to keep readable.
+    /// </summary>
+    public string DetailsText { get; }
 
     public int Direction { get; }
 
@@ -155,6 +162,8 @@ public sealed class TradeItem
         ByLabel = Formatting.PlayerLabel(trade.ActorKind);
         WasSimulated = trade.QuoteWasSimulated;
         Summary = $"{SideLabel} de {QuantityText} {Symbol} à {UnitPriceText}";
+        HeadlineText = $"{QuantityText} {Symbol} à {UnitPriceText}";
+        DetailsText = $"{Name} · {WhenText} · par {ByLabel}";
     }
 
     public string Symbol { get; }
@@ -194,6 +203,11 @@ public sealed class TradeItem
     public bool WasSimulated { get; }
 
     public string Summary { get; }
+
+    /// <summary>"0,043 BTC à 68 000,00 €" — the line the history leads with.</summary>
+    public string HeadlineText { get; }
+
+    public string DetailsText { get; }
 }
 
 /// <summary>A saved game on the start menu.</summary>
@@ -222,6 +236,7 @@ public sealed class GameCardItem
             1 => "1 ligne en portefeuille",
             _ => $"{summary.HoldingCount} lignes en portefeuille",
         };
+        DetailsText = $"{HoldingsText} · {TradesText} · {UpdatedText}";
         GoalText = summary.Goal is null
             ? string.Empty
             : $"Objectif : {Formatting.Money(summary.Goal.TargetAmount, summary.Currency)} " +
@@ -246,6 +261,8 @@ public sealed class GameCardItem
     public string TradesText { get; }
 
     public string HoldingsText { get; }
+
+    public string DetailsText { get; }
 
     public string GoalText { get; }
 

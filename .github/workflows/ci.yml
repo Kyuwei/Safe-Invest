@@ -10,6 +10,11 @@ env:
   DOTNET_NOLOGO: 1
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  # The WinUI XAML compiler loads its diagnostics from satellite assemblies. Pin the tool
+  # language to English so a real XAML error is reported as itself, rather than as WMC9999
+  # "could not find any resources appropriate for the specified culture".
+  DOTNET_CLI_UI_LANGUAGE: en-US
+  VSLANG: "1033"
 
 jobs:
   # Everything that is not WinUI builds and is tested on Linux, which is fast and

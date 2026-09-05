@@ -106,11 +106,19 @@ python3 scripts/mcp-smoke-test.py
 
 # La même chose sans réseau
 python3 scripts/mcp-smoke-test.py --simulated
+
+# Vérifier le C# de l'application WinUI depuis Linux ou macOS
+./scripts/typecheck-app.sh
 ```
 
-L'application WinUI ne se compile que sous Windows. La CI s'en charge : les bibliothèques
-et les tests tournent sous Linux, l'application est compilée et publiée sous
-`windows-latest`.
+L'application WinUI ne se compile entièrement que sous Windows, parce que le compilateur
+XAML n'existe que là. La CI s'en charge : les bibliothèques et les tests tournent sous
+Linux, l'application est compilée et publiée sous `windows-latest`.
+
+`scripts/typecheck-app.sh` comble l'écart pour le développement quotidien : il recrée les
+membres que le compilateur XAML aurait générés et vérifie tout le C# de l'application en
+une trentaine de secondes, sans Windows. Le XAML lui-même — balisage, chemins de binding,
+ressources manquantes — reste vérifié par la CI Windows.
 
 ## Avertissement
 

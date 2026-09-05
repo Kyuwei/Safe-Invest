@@ -163,13 +163,8 @@
 
                                     <StackPanel Grid.Column="1" Spacing="3">
                                         <TextBlock Text="{x:Bind PlayerName}" FontSize="16" FontWeight="SemiBold" />
-                                        <TextBlock Style="{ThemeResource SafeInvestCaptionStyle}">
-                                            <Run Text="{x:Bind HoldingsText}" />
-                                            <Run Text="·" />
-                                            <Run Text="{x:Bind TradesText}" />
-                                            <Run Text="·" />
-                                            <Run Text="{x:Bind UpdatedText}" />
-                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind DetailsText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}" />
                                         <TextBlock Text="{x:Bind GoalText}"
                                                    Style="{ThemeResource SafeInvestCaptionStyle}"
                                                    Visibility="{x:Bind HasGoal, Converter={StaticResource BoolToVisibility}}" />

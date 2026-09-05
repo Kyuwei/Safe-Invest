@@ -141,13 +141,8 @@
                                             </Border>
                                         </StackPanel>
                                         <TextBlock Text="{x:Bind Name}" Style="{ThemeResource SafeInvestCaptionStyle}" />
-                                        <TextBlock Style="{ThemeResource SafeInvestCaptionStyle}">
-                                            <Run Text="{x:Bind QuantityText}" />
-                                            <Run Text="unités à" />
-                                            <Run Text="{x:Bind AverageCostText}" />
-                                            <Run Text="en moyenne ·" />
-                                            <Run Text="{x:Bind WeightText}" />
-                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind DetailsText}"
+                                                   Style="{ThemeResource SafeInvestCaptionStyle}" />
                                         <TextBlock Text="{x:Bind SourceText}"
                                                    Style="{ThemeResource SafeInvestCaptionStyle}"
                                                    Visibility="{x:Bind IsSimulated, Converter={StaticResource BoolToVisibility}}"

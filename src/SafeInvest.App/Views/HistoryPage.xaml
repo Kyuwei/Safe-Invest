@@ -65,20 +65,11 @@
                                 </Border>
 
                                 <StackPanel Grid.Row="0" Grid.Column="1" Spacing="3">
-                                    <TextBlock FontSize="15" FontWeight="SemiBold">
-                                        <Run Text="{x:Bind QuantityText}" />
-                                        <Run Text="{x:Bind Symbol}" />
-                                        <Run Text="à" />
-                                        <Run Text="{x:Bind UnitPriceText}" />
-                                    </TextBlock>
-                                    <TextBlock Style="{ThemeResource SafeInvestCaptionStyle}">
-                                        <Run Text="{x:Bind Name}" />
-                                        <Run Text="·" />
-                                        <Run Text="{x:Bind WhenText}" />
-                                        <Run Text="·" />
-                                        <Run Text="par" />
-                                        <Run Text="{x:Bind ByLabel}" />
-                                    </TextBlock>
+                                    <TextBlock Text="{x:Bind HeadlineText}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind DetailsText}"
+                                               Style="{ThemeResource SafeInvestCaptionStyle}" />
                                     <TextBlock Text="{x:Bind FeesText}"
                                                Style="{ThemeResource SafeInvestCaptionStyle}"
                                                Visibility="{x:Bind FeesText, Converter={StaticResource StringToVisibility}}" />

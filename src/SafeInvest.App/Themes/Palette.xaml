@@ -2,9 +2,13 @@
     Safe Invest's colour language.
 
     Green means "up", red means "down" — the first thing a beginner learns to read on a
-    financial screen. Both are defined per theme so they stay legible on a light and on a
-    dark background, and PaletteService can swap them for a blue/orange pair that survives
-    the common forms of colour blindness.
+    financial screen. The brushes are defined inside each theme dictionary, which is how
+    WinUI resolves them per theme.
+
+    Each up/down brush has an "Alt" twin in blue and orange. Roughly one man in twelve
+    cannot reliably separate the usual green from the usual red, which on a financial
+    screen means losing the single most important signal. PaletteLookup picks between the
+    two sets, so nothing in the views has to know which palette is active.
 -->
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -13,94 +17,86 @@
     <ResourceDictionary.ThemeDictionaries>
 
         <ResourceDictionary x:Key="Light">
-            <Color x:Key="SafeInvestUpColor">#15803D</Color>
-            <Color x:Key="SafeInvestDownColor">#B91C1C</Color>
-            <Color x:Key="SafeInvestFlatColor">#52525B</Color>
-            <Color x:Key="SafeInvestUpSoftColor">#DCFCE7</Color>
-            <Color x:Key="SafeInvestDownSoftColor">#FEE2E2</Color>
+            <SolidColorBrush x:Key="SafeInvestUpBrush" Color="#15803D" />
+            <SolidColorBrush x:Key="SafeInvestDownBrush" Color="#B91C1C" />
+            <SolidColorBrush x:Key="SafeInvestFlatBrush" Color="#52525B" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftBrush" Color="#DCFCE7" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftBrush" Color="#FEE2E2" />
 
-            <Color x:Key="SafeInvestAccentColor">#4F46E5</Color>
-            <Color x:Key="SafeInvestCryptoColor">#F59E0B</Color>
-            <Color x:Key="SafeInvestStockColor">#0EA5E9</Color>
-            <Color x:Key="SafeInvestEtfColor">#8B5CF6</Color>
-            <Color x:Key="SafeInvestAiColor">#7C3AED</Color>
-            <Color x:Key="SafeInvestHumanColor">#0891B2</Color>
+            <SolidColorBrush x:Key="SafeInvestUpAltBrush" Color="#1D4ED8" />
+            <SolidColorBrush x:Key="SafeInvestDownAltBrush" Color="#C2410C" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftAltBrush" Color="#DBEAFE" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftAltBrush" Color="#FFEDD5" />
 
-            <Color x:Key="SafeInvestCardColor">#FFFFFF</Color>
-            <Color x:Key="SafeInvestCardBorderColor">#E4E4E7</Color>
-            <Color x:Key="SafeInvestMutedColor">#71717A</Color>
-            <Color x:Key="SafeInvestWarningColor">#B45309</Color>
-            <Color x:Key="SafeInvestWarningSoftColor">#FEF3C7</Color>
+            <SolidColorBrush x:Key="SafeInvestAccentBrush" Color="#4F46E5" />
+            <SolidColorBrush x:Key="SafeInvestCryptoBrush" Color="#F59E0B" />
+            <SolidColorBrush x:Key="SafeInvestStockBrush" Color="#0EA5E9" />
+            <SolidColorBrush x:Key="SafeInvestEtfBrush" Color="#8B5CF6" />
+            <SolidColorBrush x:Key="SafeInvestAiBrush" Color="#7C3AED" />
+            <SolidColorBrush x:Key="SafeInvestHumanBrush" Color="#0891B2" />
+
+            <SolidColorBrush x:Key="SafeInvestCardBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SafeInvestCardBorderBrush" Color="#E4E4E7" />
+            <SolidColorBrush x:Key="SafeInvestMutedBrush" Color="#71717A" />
+            <SolidColorBrush x:Key="SafeInvestWarningBrush" Color="#B45309" />
+            <SolidColorBrush x:Key="SafeInvestWarningSoftBrush" Color="#FEF3C7" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
-            <Color x:Key="SafeInvestUpColor">#4ADE80</Color>
-            <Color x:Key="SafeInvestDownColor">#F87171</Color>
-            <Color x:Key="SafeInvestFlatColor">#A1A1AA</Color>
-            <Color x:Key="SafeInvestUpSoftColor">#14532D</Color>
-            <Color x:Key="SafeInvestDownSoftColor">#7F1D1D</Color>
+            <SolidColorBrush x:Key="SafeInvestUpBrush" Color="#4ADE80" />
+            <SolidColorBrush x:Key="SafeInvestDownBrush" Color="#F87171" />
+            <SolidColorBrush x:Key="SafeInvestFlatBrush" Color="#A1A1AA" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftBrush" Color="#14532D" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftBrush" Color="#7F1D1D" />
 
-            <Color x:Key="SafeInvestAccentColor">#818CF8</Color>
-            <Color x:Key="SafeInvestCryptoColor">#FBBF24</Color>
-            <Color x:Key="SafeInvestStockColor">#38BDF8</Color>
-            <Color x:Key="SafeInvestEtfColor">#A78BFA</Color>
-            <Color x:Key="SafeInvestAiColor">#A78BFA</Color>
-            <Color x:Key="SafeInvestHumanColor">#22D3EE</Color>
+            <SolidColorBrush x:Key="SafeInvestUpAltBrush" Color="#60A5FA" />
+            <SolidColorBrush x:Key="SafeInvestDownAltBrush" Color="#FB923C" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftAltBrush" Color="#1E3A8A" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftAltBrush" Color="#7C2D12" />
 
-            <Color x:Key="SafeInvestCardColor">#27272A</Color>
-            <Color x:Key="SafeInvestCardBorderColor">#3F3F46</Color>
-            <Color x:Key="SafeInvestMutedColor">#A1A1AA</Color>
-            <Color x:Key="SafeInvestWarningColor">#FCD34D</Color>
-            <Color x:Key="SafeInvestWarningSoftColor">#451A03</Color>
+            <SolidColorBrush x:Key="SafeInvestAccentBrush" Color="#818CF8" />
+            <SolidColorBrush x:Key="SafeInvestCryptoBrush" Color="#FBBF24" />
+            <SolidColorBrush x:Key="SafeInvestStockBrush" Color="#38BDF8" />
+            <SolidColorBrush x:Key="SafeInvestEtfBrush" Color="#A78BFA" />
+            <SolidColorBrush x:Key="SafeInvestAiBrush" Color="#A78BFA" />
+            <SolidColorBrush x:Key="SafeInvestHumanBrush" Color="#22D3EE" />
+
+            <SolidColorBrush x:Key="SafeInvestCardBrush" Color="#27272A" />
+            <SolidColorBrush x:Key="SafeInvestCardBorderBrush" Color="#3F3F46" />
+            <SolidColorBrush x:Key="SafeInvestMutedBrush" Color="#A1A1AA" />
+            <SolidColorBrush x:Key="SafeInvestWarningBrush" Color="#FCD34D" />
+            <SolidColorBrush x:Key="SafeInvestWarningSoftBrush" Color="#451A03" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="HighContrast">
-            <Color x:Key="SafeInvestUpColor">#00FF00</Color>
-            <Color x:Key="SafeInvestDownColor">#FF0000</Color>
-            <Color x:Key="SafeInvestFlatColor">#FFFFFF</Color>
-            <Color x:Key="SafeInvestUpSoftColor">#000000</Color>
-            <Color x:Key="SafeInvestDownSoftColor">#000000</Color>
+            <SolidColorBrush x:Key="SafeInvestUpBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestDownBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestFlatBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftBrush" Color="{ThemeResource SystemColorWindowColor}" />
 
-            <Color x:Key="SafeInvestAccentColor">#FFFF00</Color>
-            <Color x:Key="SafeInvestCryptoColor">#FFFF00</Color>
-            <Color x:Key="SafeInvestStockColor">#00FFFF</Color>
-            <Color x:Key="SafeInvestEtfColor">#FF00FF</Color>
-            <Color x:Key="SafeInvestAiColor">#FF00FF</Color>
-            <Color x:Key="SafeInvestHumanColor">#00FFFF</Color>
+            <SolidColorBrush x:Key="SafeInvestUpAltBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestDownAltBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestUpSoftAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SafeInvestDownSoftAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
 
-            <Color x:Key="SafeInvestCardColor">#000000</Color>
-            <Color x:Key="SafeInvestCardBorderColor">#FFFFFF</Color>
-            <Color x:Key="SafeInvestMutedColor">#FFFFFF</Color>
-            <Color x:Key="SafeInvestWarningColor">#FFFF00</Color>
-            <Color x:Key="SafeInvestWarningSoftColor">#000000</Color>
+            <SolidColorBrush x:Key="SafeInvestAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestCryptoBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestStockBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestEtfBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestAiBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestHumanBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+
+            <SolidColorBrush x:Key="SafeInvestCardBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SafeInvestCardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SafeInvestMutedBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SafeInvestWarningBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="SafeInvestWarningSoftBrush" Color="{ThemeResource SystemColorWindowColor}" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>
 
-    <!-- Brushes are what the views bind to; PaletteService rewrites these at runtime. -->
-    <SolidColorBrush x:Key="SafeInvestUpBrush" Color="{ThemeResource SafeInvestUpColor}" />
-    <SolidColorBrush x:Key="SafeInvestDownBrush" Color="{ThemeResource SafeInvestDownColor}" />
-    <SolidColorBrush x:Key="SafeInvestFlatBrush" Color="{ThemeResource SafeInvestFlatColor}" />
-    <SolidColorBrush x:Key="SafeInvestUpSoftBrush" Color="{ThemeResource SafeInvestUpSoftColor}" />
-    <SolidColorBrush x:Key="SafeInvestDownSoftBrush" Color="{ThemeResource SafeInvestDownSoftColor}" />
-
-    <SolidColorBrush x:Key="SafeInvestAccentBrush" Color="{ThemeResource SafeInvestAccentColor}" />
-    <SolidColorBrush x:Key="SafeInvestCryptoBrush" Color="{ThemeResource SafeInvestCryptoColor}" />
-    <SolidColorBrush x:Key="SafeInvestStockBrush" Color="{ThemeResource SafeInvestStockColor}" />
-    <SolidColorBrush x:Key="SafeInvestEtfBrush" Color="{ThemeResource SafeInvestEtfColor}" />
-    <SolidColorBrush x:Key="SafeInvestAiBrush" Color="{ThemeResource SafeInvestAiColor}" />
-    <SolidColorBrush x:Key="SafeInvestHumanBrush" Color="{ThemeResource SafeInvestHumanColor}" />
-
-    <SolidColorBrush x:Key="SafeInvestCardBrush" Color="{ThemeResource SafeInvestCardColor}" />
-    <SolidColorBrush x:Key="SafeInvestCardBorderBrush" Color="{ThemeResource SafeInvestCardBorderColor}" />
-    <SolidColorBrush x:Key="SafeInvestMutedBrush" Color="{ThemeResource SafeInvestMutedColor}" />
-    <SolidColorBrush x:Key="SafeInvestWarningBrush" Color="{ThemeResource SafeInvestWarningColor}" />
-    <SolidColorBrush x:Key="SafeInvestWarningSoftBrush" Color="{ThemeResource SafeInvestWarningSoftColor}" />
-
     <!-- Shared shapes so every card in the app looks like it belongs to the same family. -->
-    <CornerRadius x:Key="SafeInvestCardCornerRadius">12</CornerRadius>
-    <Thickness x:Key="SafeInvestCardPadding">18</Thickness>
-
     <Style x:Key="SafeInvestCardStyle" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource SafeInvestCardBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource SafeInvestCardBorderBrush}" />
