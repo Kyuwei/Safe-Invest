@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1848;CA1031;CA2007</NoWarn>
+    <Authors>Safe Invest</Authors>
+    <Product>Safe Invest</Product>
+    <Company>Safe Invest</Company>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- Windows-only projects (the WinUI app) cannot be restored or built on Linux CI.
+       This flag lets the cross-platform jobs skip them explicitly. -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <IsRunningOnNonWindows>true</IsRunningOnNonWindows>
+  </PropertyGroup>
+
+</Project>

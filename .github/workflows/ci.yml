@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  # The WinUI XAML compiler loads its diagnostics from satellite assemblies. Pin the tool
+  # language to English so a real XAML error is reported as itself, rather than as WMC9999
+  # "could not find any resources appropriate for the specified culture".
+  DOTNET_CLI_UI_LANGUAGE: en-US
+  VSLANG: "1033"
+
+jobs:
+  # Everything that is not WinUI builds and is tested on Linux, which is fast and
+  # catches the bulk of the regressions.
+  libraries:
+    name: Bibliothèques et tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restaurer
+        run: |
+          dotnet restore src/SafeInvest.Core/SafeInvest.Core.csproj
+          dotnet restore src/SafeInvest.MarketData/SafeInvest.MarketData.csproj
+          dotnet restore src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
+          dotnet restore tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj
+          dotnet restore tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj
+
+      - name: Compiler
+        run: |
+          dotnet build src/SafeInvest.Mcp/SafeInvest.Mcp.csproj -c Release --no-restore
+          dotnet build tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-restore
+          dotnet build tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-restore
+
+      - name: Tests unitaires
+        run: |
+          dotnet test tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-build
+          dotnet test tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-build
+
+      - name: Test de bout en bout du serveur MCP
+        # Cours simulés : la CI ne doit pas dépendre de la disponibilité d'API tierces.
+        run: python3 scripts/mcp-smoke-test.py --simulated
+
+      - name: Vérification de types du C# de l'application WinUI
+        # Le XAML ne se compile que sous Windows, mais le C# de l'application peut être
+        # vérifié ici : cela fait remonter une faute de frappe en quelques secondes plutôt
+        # qu'après deux minutes de compilation Windows.
+        run: ./scripts/typecheck-app.sh
+
+  # WinUI 3 ne se compile que sous Windows : c'est ici que l'application est vérifiée.
+  app:
+    name: Application WinUI 3
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Compiler la solution complète
+        run: dotnet build Safe-Invest.sln -c Release
+
+      - name: Diagnostic du compilateur XAML
+        # Le compilateur XAML s'exécute dans un processus à part et rend ses diagnostics
+        # dans un fichier JSON. Quand MSBuild n'arrive pas à formater le message (WMC9999),
+        # ce fichier reste la seule trace de l'erreur réelle.
+        if: failure()
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Path src/SafeInvest.App/obj -Filter *.json -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Name -match 'utput|nput' }
+          if (-not $files) { Write-Host "Aucun fichier de diagnostic produit." ; exit 0 }
+          foreach ($file in $files) {
+            Write-Host "=== $($file.FullName)"
+            Get-Content $file.FullName -Raw
+            Write-Host ""
+          }
+
+      - name: Recompiler avec le compilateur XAML en processus
+        # `dotnet build` fait tourner le compilateur XAML dans un exécutable .NET Framework
+        # séparé, qui n'arrive pas à charger les ressources de ses propres messages et
+        # renvoie WMC9999 à la place de l'erreur réelle. MSBuild de Visual Studio l'exécute
+        # en processus et rapporte l'erreur telle quelle.
+        if: failure()
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { Write-Host "vswhere introuvable" ; exit 0 }
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild `
+                                -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          if (-not $msbuild) { Write-Host "MSBuild introuvable" ; exit 0 }
+          Write-Host "MSBuild : $msbuild"
+          & $msbuild src/SafeInvest.App/SafeInvest.App.csproj `
+              /p:Configuration=Release /p:Platform=AnyCPU `
+              /p:UseXamlCompilerExecutable=false `
+              /p:RestorePackages=false /v:minimal /nologo
+          exit 0
+
+      - name: Publier l'application (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=false
+          -o artifacts/SafeInvest-win-x64
+
+      - name: Publier le serveur MCP (win-x64)
+        run: >
+          dotnet publish src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
+          -c Release -r win-x64 --self-contained true
+          -o artifacts/SafeInvest-mcp-win-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeInvest-win-x64
+          path: artifacts/
+          retention-days: 14

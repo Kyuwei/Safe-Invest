@@ -1,0 +1,187 @@
+<Page
+    x:Class="SafeInvest.App.Views.NewGamePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <ScrollViewer>
+        <StackPanel Padding="48,28,48,48" Spacing="22" MaxWidth="820" HorizontalAlignment="Center">
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Click="OnBackClick" Padding="10,6">
+                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                </Button>
+                <TextBlock Text="Nouvelle partie" FontSize="30" FontWeight="Bold" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Qui joue -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Qui joue ?" FontSize="17" FontWeight="SemiBold" />
+
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ToggleButton x:Name="HumanToggle"
+                                      Grid.Column="0"
+                                      IsChecked="True"
+                                      Click="OnPlayerKindChanged"
+                                      HorizontalAlignment="Stretch"
+                                      HorizontalContentAlignment="Left"
+                                      Padding="18,14"
+                                      CornerRadius="10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Une personne" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Text="Vous cherchez, vous achetez, vous vendez."
+                                           FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </ToggleButton>
+
+                        <ToggleButton x:Name="AiToggle"
+                                      Grid.Column="1"
+                                      Click="OnPlayerKindChanged"
+                                      HorizontalAlignment="Stretch"
+                                      HorizontalContentAlignment="Left"
+                                      Padding="18,14"
+                                      CornerRadius="10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Une IA" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Text="Elle décide via MCP ; l'écran montre et justifie chaque opération."
+                                           FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </ToggleButton>
+                    </Grid>
+
+                    <TextBox x:Name="PlayerNameBox"
+                             Header="Nom du joueur"
+                             PlaceholderText="Alice"
+                             MaxLength="40" />
+                </StackPanel>
+            </Border>
+
+            <!-- Capital de départ -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Capital de départ" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Text="De l'argent fictif, à investir sur de vrais marchés."
+                               Style="{ThemeResource SafeInvestCaptionStyle}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="1 000 €" Tag="1000" Click="OnPresetAmountClick" CornerRadius="8" />
+                        <Button Content="10 000 €" Tag="10000" Click="OnPresetAmountClick" CornerRadius="8" />
+                        <Button Content="100 000 €" Tag="100000" Click="OnPresetAmountClick" CornerRadius="8" />
+                        <Button Content="1 000 000 €" Tag="1000000" Click="OnPresetAmountClick" CornerRadius="8" />
+                    </StackPanel>
+
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <NumberBox x:Name="StartingCashBox"
+                                   Grid.Column="0"
+                                   Header="Montant"
+                                   Value="10000"
+                                   Minimum="1"
+                                   Maximum="1000000000"
+                                   SpinButtonPlacementMode="Compact"
+                                   ValueChanged="OnFormValueChanged" />
+
+                        <ComboBox x:Name="CurrencyBox"
+                                  Grid.Column="1"
+                                  Header="Devise"
+                                  HorizontalAlignment="Stretch"
+                                  SelectedIndex="0"
+                                  SelectionChanged="OnCurrencyChanged">
+                            <ComboBoxItem Content="EUR (€)" Tag="EUR" />
+                            <ComboBoxItem Content="USD ($)" Tag="USD" />
+                            <ComboBoxItem Content="GBP (£)" Tag="GBP" />
+                            <ComboBoxItem Content="CHF" Tag="CHF" />
+                        </ComboBox>
+                    </Grid>
+
+                    <Expander Header="Options avancées" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="10" Padding="0,8">
+                            <NumberBox x:Name="FeeBox"
+                                       Header="Frais de courtage (% par opération)"
+                                       Value="0"
+                                       Minimum="0"
+                                       Maximum="5"
+                                       SmallChange="0.1"
+                                       SpinButtonPlacementMode="Compact" />
+                            <TextBlock Text="Les vrais courtiers prélèvent souvent entre 0,1 % et 1 % par opération. Mettre autre chose que 0 rend la partie plus réaliste."
+                                       Style="{ThemeResource SafeInvestCaptionStyle}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Border>
+
+            <!-- Objectif -->
+            <Border Style="{ThemeResource SafeInvestCardStyle}">
+                <StackPanel Spacing="14">
+                    <Grid>
+                        <TextBlock Text="Objectif" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ToggleSwitch x:Name="GoalSwitch"
+                                      HorizontalAlignment="Right"
+                                      OffContent="Sans objectif"
+                                      OnContent="Avec objectif"
+                                      Toggled="OnGoalToggled" />
+                    </Grid>
+
+                    <StackPanel x:Name="GoalPanel" Spacing="12" Visibility="Collapsed">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <NumberBox x:Name="GoalAmountBox"
+                                       Grid.Column="0"
+                                       Header="Montant à atteindre"
+                                       Value="15000"
+                                       Minimum="1"
+                                       Maximum="1000000000"
+                                       SpinButtonPlacementMode="Compact"
+                                       ValueChanged="OnFormValueChanged" />
+
+                            <CalendarDatePicker x:Name="GoalDatePicker"
+                                                Grid.Column="1"
+                                                Header="Date limite"
+                                                HorizontalAlignment="Stretch"
+                                                DateChanged="OnGoalDateChanged" />
+                        </Grid>
+
+                        <Border Background="{ThemeResource SafeInvestWarningSoftBrush}"
+                                CornerRadius="8"
+                                Padding="14,10">
+                            <TextBlock x:Name="GoalPreviewText"
+                                       TextWrapping="Wrap"
+                                       FontSize="13" />
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <InfoBar x:Name="ErrorBar"
+                     Severity="Error"
+                     IsOpen="False"
+                     IsClosable="True" />
+
+            <Button Content="Commencer la partie"
+                    Click="OnStartClick"
+                    Style="{ThemeResource AccentButtonStyle}"
+                    HorizontalAlignment="Stretch"
+                    Padding="0,14"
+                    FontSize="16"
+                    CornerRadius="10" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

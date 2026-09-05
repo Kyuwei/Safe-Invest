@@ -1,0 +1,35 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Off on purpose: the Windows App SDK pins its own build-tools version and
+         transitive pinning would fight it. -->
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
+
+    <!-- Market data -->
+    <PackageVersion Include="AngleSharp" Version="1.7.3" />
+
+    <!-- MCP server -->
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+
+    <!-- WinUI 3 desktop app -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+
+    <!-- Tests -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageVersion Include="xunit.v3" Version="4.0.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>
