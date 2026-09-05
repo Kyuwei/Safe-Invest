@@ -88,6 +88,26 @@ jobs:
             Write-Host ""
           }
 
+      - name: Recompiler avec le compilateur XAML en processus
+        # `dotnet build` fait tourner le compilateur XAML dans un exécutable .NET Framework
+        # séparé, qui n'arrive pas à charger les ressources de ses propres messages et
+        # renvoie WMC9999 à la place de l'erreur réelle. MSBuild de Visual Studio l'exécute
+        # en processus et rapporte l'erreur telle quelle.
+        if: failure()
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { Write-Host "vswhere introuvable" ; exit 0 }
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild `
+                                -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          if (-not $msbuild) { Write-Host "MSBuild introuvable" ; exit 0 }
+          Write-Host "MSBuild : $msbuild"
+          & $msbuild src/SafeInvest.App/SafeInvest.App.csproj `
+              /p:Configuration=Release /p:Platform=AnyCPU `
+              /p:UseXamlCompilerExecutable=false `
+              /p:RestorePackages=false /v:minimal /nologo
+          exit 0
+
       - name: Publier l'application (win-x64)
         run: >
           dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
