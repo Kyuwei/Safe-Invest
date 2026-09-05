@@ -47,6 +47,12 @@ jobs:
         # Cours simulés : la CI ne doit pas dépendre de la disponibilité d'API tierces.
         run: python3 scripts/mcp-smoke-test.py --simulated
 
+      - name: Vérification de types du C# de l'application WinUI
+        # Le XAML ne se compile que sous Windows, mais le C# de l'application peut être
+        # vérifié ici : cela fait remonter une faute de frappe en quelques secondes plutôt
+        # qu'après deux minutes de compilation Windows.
+        run: ./scripts/typecheck-app.sh
+
   # WinUI 3 ne se compile que sous Windows : c'est ici que l'application est vérifiée.
   app:
     name: Application WinUI 3
