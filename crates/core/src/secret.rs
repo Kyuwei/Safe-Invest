@@ -100,10 +100,10 @@ mod windows_dpapi {
     )]
 
     use super::SecretError;
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
     };
-    use windows_sys::Win32::System::Memory::LocalFree;
 
     /// Binds the blob to this application, so a DPAPI blob sealed by another
     /// program on the same account cannot be swapped in.

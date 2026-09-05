@@ -78,6 +78,10 @@ fn restrict_to_owner(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Unix implementation is fallible; both must share one signature"
+)]
 fn restrict_to_owner(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }

@@ -390,14 +390,17 @@ pub async fn sell(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
+    /// What is on disk — the screen edits this, never the overridden copy.
     pub settings: AppSettings,
     /// Which providers have a key stored — never the key itself.
     pub configured_keys: Vec<String>,
+    /// True when `--demo` forces the simulator whatever the file says.
+    pub demo_forced: bool,
 }
 
 #[tauri::command]
 pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
-    let settings = context.settings();
+    let settings = context.stored_settings();
     let configured = ["coingecko", "coinmarketcap", "finnhub"]
         .into_iter()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
@@ -407,6 +410,7 @@ pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
     SettingsView {
         settings,
         configured_keys: configured,
+        demo_forced: context.is_demo_forced(),
     }
 }
 

@@ -35,7 +35,7 @@ jobs:
       - name: Chaîne d'outils
         run: rustup show && rustc --version && cargo --version
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -53,6 +53,17 @@ jobs:
 
       - name: Clippy (build console)
         run: cargo clippy --workspace --all-targets --locked --no-default-features
+
+      # The DPAPI code only exists on Windows, so a Linux clippy never sees it.
+      # Type-checking the core crate against the Windows target catches a
+      # mistake there in seconds instead of two minutes into the Windows job.
+      # It stops at `core` because everything above it pulls in `ring`, whose
+      # build script cannot cross-compile to MSVC.
+      - name: Vérifier le code Windows du noyau
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo clippy -p safe-invest-core --all-targets --locked \
+            --target x86_64-pc-windows-msvc
 
       - name: Tests
         run: cargo test --workspace --locked
@@ -110,7 +121,7 @@ jobs:
       - name: Chaîne d'outils
         run: rustup show
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index

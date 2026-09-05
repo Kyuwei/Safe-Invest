@@ -60,12 +60,29 @@ impl Context {
         &self.settings
     }
 
+    /// The settings as the app should behave, runtime overrides applied.
     pub fn settings(&self) -> AppSettings {
-        let mut settings = self.settings.load();
+        let mut settings = self.stored_settings();
         if self.force_simulated {
             settings.force_simulated_mode = true;
         }
         settings
+    }
+
+    /// The settings exactly as they are on disk.
+    ///
+    /// The Settings screen shows and writes *these*. Handing it the overridden
+    /// copy would mean that launching once with `--demo` and then ticking any
+    /// unrelated box would silently write demo mode into the file for good.
+    pub fn stored_settings(&self) -> AppSettings {
+        self.settings.load()
+    }
+
+    /// True when the simulator is forced from the command line rather than
+    /// from the settings file. The interface says so instead of pretending the
+    /// user chose it.
+    pub fn is_demo_forced(&self) -> bool {
+        self.force_simulated
     }
 
     /// The market service as it is configured right now.
@@ -95,4 +112,70 @@ fn build_market(
     }
     MarketDataService::new(&config, settings)
         .map_err(|e| crate::ServiceError::Storage(format!("client HTTP indisponible : {e}")))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a test that trips is a test that failed"
+)]
+mod tests {
+    use super::*;
+
+    fn context(force_simulated: bool) -> (tempfile::TempDir, Context) {
+        let dir = tempfile::tempdir().unwrap();
+        let context = Context::new(&ContextConfig {
+            data_dir: Some(dir.path().to_path_buf()),
+            force_simulated,
+        })
+        .unwrap();
+        (dir, context)
+    }
+
+    #[test]
+    fn the_demo_flag_changes_behaviour_without_changing_the_file() {
+        let (_dir, context) = context(true);
+
+        assert!(
+            context.settings().force_simulated_mode,
+            "le marché doit être simulé"
+        );
+        assert!(
+            !context.stored_settings().force_simulated_mode,
+            "le fichier ne doit pas retenir un choix fait en ligne de commande"
+        );
+        assert!(context.is_demo_forced());
+    }
+
+    #[test]
+    fn saving_the_settings_under_demo_does_not_pin_demo_mode() {
+        // The bug this guards: launch once with --demo, tick any unrelated box,
+        // and the app is stuck in demo mode for good.
+        let (_dir, context) = context(true);
+
+        let mut settings = context.stored_settings();
+        settings.colour_blind_palette = true;
+        context.save_settings(&settings).unwrap();
+
+        assert!(!context.stored_settings().force_simulated_mode);
+        assert!(context.stored_settings().colour_blind_palette);
+    }
+
+    #[test]
+    fn without_the_flag_the_file_decides() {
+        let (_dir, context) = context(false);
+        assert!(!context.settings().force_simulated_mode);
+
+        let mut settings = context.stored_settings();
+        settings.force_simulated_mode = true;
+        context.save_settings(&settings).unwrap();
+
+        assert!(context.settings().force_simulated_mode);
+        assert!(
+            !context.is_demo_forced(),
+            "c'est un choix enregistré, pas une option de lancement"
+        );
+    }
 }

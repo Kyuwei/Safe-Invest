@@ -11,7 +11,6 @@ use safe_invest_core::model::{
     Quote, Trade,
 };
 use safe_invest_core::settings::AppSettings;
-use safe_invest_core::store::StoreError;
 use safe_invest_core::{goal, valuation};
 use safe_invest_market::PricePoint;
 use safe_invest_market::service::ProviderStatus;
@@ -350,15 +349,5 @@ impl Context {
         self.settings_service()
             .set_api_key(provider_id, key)
             .map_err(|e| ServiceError::Storage(e.to_string()))
-    }
-}
-
-// `StoreError` has to convert into `ServiceError` for `mutate` to be usable
-// with the service's own error type.
-impl From<ServiceError> for StoreError {
-    fn from(error: ServiceError) -> Self {
-        Self::Corrupt(serde_json::Error::io(std::io::Error::other(
-            error.to_string(),
-        )))
     }
 }

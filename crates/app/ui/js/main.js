@@ -429,11 +429,19 @@ async function openSettings() {
   screens.showScreen("settings");
 
   try {
-    const { settings, configuredKeys } = await api.getSettings();
+    const { settings, configuredKeys, demoForced } = await api.getSettings();
 
     $("#opt-colourblind").checked = settings.colourBlindPalette;
-    $("#opt-simulated").checked = settings.forceSimulatedMode;
     $("#opt-refresh").value = String(settings.refreshIntervalSeconds);
+
+    // `--demo` on the command line wins, but it is the launch that chose it,
+    // not the user. Show it as such rather than ticking their box for them.
+    const simulated = $("#opt-simulated");
+    simulated.checked = demoForced || settings.forceSimulatedMode;
+    simulated.disabled = demoForced;
+    simulated.closest(".switch").lastElementChild.textContent = demoForced
+      ? "Mode démonstration : imposé par l'option --demo au lancement"
+      : "Mode démonstration : cours simulés, aucun appel réseau";
 
     screens.renderKeyForm(configuredKeys, {
       onSave: async (providerId, key) => {
