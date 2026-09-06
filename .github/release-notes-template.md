@@ -36,11 +36,11 @@ Le même fichier est aussi un serveur MCP. Dans la configuration de votre client
 }
 ```
 
-L'IA dispose alors de quatorze outils : créer une partie, chercher un actif,
-relever un cours, acheter, vendre, suivre l'objectif. En partie IA, chaque
-opération doit être accompagnée d'une justification, qui s'affiche dans
-l'historique — c'est ce qui rend la partie lisible pour la personne qui
-apprend.
+L'IA dispose alors des outils qu'il faut pour jouer : créer une partie,
+chercher un actif, relever un cours, acheter, vendre, suivre l'objectif, clore
+la partie et en lire le bilan. En partie IA, chaque opération doit être
+accompagnée d'une justification, qui s'affiche dans l'historique — c'est ce qui
+rend la partie lisible pour la personne qui apprend.
 
 ## Vérifier le téléchargement
 

@@ -67,6 +67,15 @@ jobs:
           $hash = (Get-FileHash dist/safe-invest.exe -Algorithm SHA256).Hash.ToLower()
           "$hash *safe-invest.exe" | Out-File -Encoding ascii dist/safe-invest.exe.sha256
 
+          # The notes below quote both of these. Without the outputs they are
+          # substituted with nothing, and the release tells people to check a
+          # blank checksum.
+          $size = [math]::Round((Get-Item dist/safe-invest.exe).Length / 1MB, 1)
+          "size=$size" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "==> safe-invest.exe : $size Mo"
+          Write-Host "==> SHA-256 : $hash"
+
       - name: Rédiger les notes de version
         shell: pwsh
         run: |
@@ -74,6 +83,10 @@ jobs:
           $notes = $notes.Replace("{VERSION}", "${{ steps.version.outputs.version }}")
           $notes = $notes.Replace("{SIZE}", "${{ steps.package.outputs.size }}")
           $notes = $notes.Replace("{SHA256}", "${{ steps.package.outputs.sha256 }}")
+
+          if ($notes -match '\{[A-Z0-9_]+\}') {
+            throw "Un emplacement des notes est resté vide : $($Matches[0])"
+          }
           $notes | Out-File -Encoding utf8 dist/notes.md
 
       - name: Publier
