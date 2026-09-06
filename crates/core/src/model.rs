@@ -107,6 +107,50 @@ pub enum GoalStatus {
     Expired,
 }
 
+/// Why a game stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EndReason {
+    /// The target was reached, at least for the moment it was measured.
+    GoalReached,
+    /// The deadline went by with the target still out of reach.
+    DeadlinePassed,
+    /// Somebody decided they were done.
+    Stopped,
+}
+
+impl EndReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GoalReached => "goalReached",
+            Self::DeadlinePassed => "deadlinePassed",
+            Self::Stopped => "stopped",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GoalReached => "Objectif atteint",
+            Self::DeadlinePassed => "Date limite dépassée",
+            Self::Stopped => "Partie terminée",
+        }
+    }
+}
+
+/// How a game ended, written once and never recomputed.
+///
+/// `final_value` is the portfolio's worth at the instant the game stopped, kept
+/// verbatim. Recomputing it when the summary is next opened would quietly
+/// rewrite the result — a game "won" at 25 000 € would show 23 800 € a week
+/// later because the market moved on without it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Outcome {
+    pub ended_at: Timestamp,
+    pub reason: EndReason,
+    pub final_value: Decimal,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("valeur inconnue")]
 pub struct UnknownVariant;
@@ -271,6 +315,9 @@ pub struct GameSession {
     pub value_history: Vec<ValuePoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<Goal>,
+    /// Set once the game is over. Present means read-only, everywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
     #[serde(default)]
     pub fee_percent: Decimal,
     pub created_at: Timestamp,
@@ -292,6 +339,29 @@ impl GameSession {
         Self::CURRENT_SCHEMA_VERSION
     }
 
+    /// Whether this game has stopped and can no longer be traded.
+    pub fn is_over(&self) -> bool {
+        self.outcome.is_some()
+    }
+
+    /// Ends the game, keeping the value it had at that moment.
+    ///
+    /// Ending twice is not an error and does not overwrite: the first ending is
+    /// the one that happened, and a second call — a late refresh racing a
+    /// manual stop — must not move the finish line afterwards.
+    pub fn finish(&mut self, reason: EndReason, final_value: Decimal, at: Timestamp) -> bool {
+        if self.outcome.is_some() {
+            return false;
+        }
+        self.outcome = Some(Outcome {
+            ended_at: at,
+            reason,
+            final_value,
+        });
+        self.updated_at = at;
+        true
+    }
+
     /// Sum of every realised gain and loss booked so far.
     pub fn realized_pnl(&self) -> Decimal {
         self.trades
@@ -308,6 +378,15 @@ impl GameSession {
     /// oldest are dropped past [`Self::MAX_VALUE_POINTS`] — a month of readings
     /// at a quarter-hour each.
     pub fn record_value(&mut self, at: Timestamp, total_value: Decimal) -> bool {
+        // A finished game's curve is finished too. The holdings are still
+        // quoted so the portfolio screen can show what they are worth today,
+        // but appending those readings would extend the "trajectory of the
+        // game" past the end of the game — inventing history after the fact,
+        // which is the one thing this curve exists to avoid.
+        if self.is_over() {
+            return false;
+        }
+
         if let Some(last) = self.value_history.last() {
             let elapsed = at.as_second().saturating_sub(last.at.as_second());
             if elapsed < Self::VALUE_INTERVAL_SECONDS {
@@ -346,6 +425,7 @@ impl GameSession {
             created_at: self.created_at,
             updated_at: self.updated_at,
             goal: self.goal,
+            outcome: self.outcome,
         }
     }
 }
@@ -367,6 +447,8 @@ pub struct GameSummary {
     pub updated_at: Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<Goal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
 }
 
 /// A holding priced at the current market. `None` prices mean no source could

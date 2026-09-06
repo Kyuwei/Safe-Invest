@@ -1192,3 +1192,112 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
   border: 1px solid var(--teach-line);
   text-wrap: pretty;
 }
+
+/* ------------------------------------------------------------ le bilan */
+
+.pill-done { color: var(--text-2); background: var(--track); border-color: var(--border-strong); }
+.badge-done { background: var(--track); border-color: var(--border-strong); color: var(--text-2); }
+
+.summary-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 11px; margin-bottom: 4px; }
+
+.summary-verdict {
+  padding: 4px 11px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  color: var(--text-soft);
+  background: var(--track);
+  border: 1px solid var(--border-strong);
+}
+
+/* The reason a game ended is not a gain or a loss, but reaching a target is
+   worth the green all the same — it is the one outcome the player aimed at. */
+.summary-verdict.reason-goalReached {
+  color: var(--up-ink);
+  background: var(--up-soft);
+  border-color: var(--up-line);
+}
+
+.summary-verdict.reason-deadlinePassed {
+  color: var(--teach-ink);
+  background: var(--teach-soft);
+  border-color: var(--teach-line);
+}
+
+.summary-headline {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-wrap: pretty;
+}
+
+/* `align-items: start` so the chart card is as tall as its chart. Stretched
+   to match the column beside it, it left a hand's width of empty panel. */
+.summary-split {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  align-items: start;
+}
+.summary-side { display: grid; gap: 12px; align-content: start; }
+.stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@media (max-width: 1000px) {
+  .summary-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The dashed target, on the same scale as the curve. */
+.goal-line {
+  stroke: var(--teach);
+  stroke-width: 2;
+  stroke-dasharray: 7 6;
+  vector-effect: non-scaling-stroke;
+}
+
+/* What the result is worth as a lesson. Amber, like every other teaching note
+   in the app — a result to think about is not a warning about money. */
+.lesson {
+  margin: 0;
+  padding: 15px 17px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--teach-text);
+  background: var(--teach-soft);
+  border: 1px solid var(--teach-line);
+  border-radius: var(--radius);
+  text-wrap: pretty;
+}
+
+.badge-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+.badge-row { display: flex; gap: 11px; align-items: flex-start; opacity: 0.5; }
+.badge-row.is-earned { opacity: 1; }
+.badge-row > span:last-child { display: grid; gap: 1px; }
+
+.badge-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--track);
+  border: 1px solid var(--border-strong);
+}
+
+.badge-row.is-earned .badge-mark {
+  color: var(--up-ink);
+  background: var(--up-soft);
+  border-color: var(--up-line);
+}
+
+.badge-label { font-size: 0.88rem; font-weight: 600; }
+.badge-note { font-size: 0.78rem; line-height: 1.4; color: var(--text-soft); text-wrap: pretty; }

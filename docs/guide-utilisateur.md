@@ -131,7 +131,36 @@ Une colonne dit **qui** a passé l'ordre, vous ou l'IA, et la dernière porte sa
 **justification**. C'est le vrai support pédagogique de l'application : une suite de
 décisions datées et argumentées, qu'on peut relire et critiquer après coup.
 
-## 6. Les paramètres
+## 6. La fin d'une partie
+
+Une partie se termine de trois façons&nbsp;: l'objectif est atteint, la date limite passe,
+ou vous cliquez sur **Terminer la partie**. Les deux premières sont automatiques — la
+partie s'arrête à l'évaluation qui le constate, et pas plus tard.
+
+**La valeur est figée à cet instant.** C'est le point important&nbsp;: le bilan raconte ce
+qui s'est passé, il ne se recalcule pas au cours du jour. Une partie gagnée à 26 140 € le
+restera, même si les cryptos qu'elle détenait ont fondu la semaine suivante. La courbe
+s'arrête là aussi&nbsp;; elle ne continue pas après la fin de la partie.
+
+Ensuite, plus aucun ordre n'est accepté, ni depuis la fenêtre ni par l'IA, et l'écran
+**Bilan** prend la main&nbsp;:
+
+- **le résultat**, comparé au capital de départ et à l'objectif s'il y en avait un&nbsp;;
+- **la trajectoire** de toute la partie, avec l'objectif en pointillé quand la courbe l'a
+  approché — s'il était hors d'atteinte, aucune ligne n'est tracée plutôt qu'une ligne
+  collée au bord&nbsp;;
+- **le meilleur et le pire trade**, et la part des ventes gagnantes. Cette part ne compte
+  que les **ventes**&nbsp;: un achat n'a encore rien gagné ni perdu, et le compter
+  diviserait le chiffre par deux pour une raison qui n'a rien à voir avec vos choix&nbsp;;
+- **ce que le résultat vaut ramené à l'année.** C'est la ligne la plus utile de l'écran.
+  +161 % en dix-huit jours est un très beau passage&nbsp;; le même rythme tenu un an
+  n'existe nulle part, et le dire est tout l'intérêt d'un simulateur&nbsp;;
+- **ce que la partie a montré** — quelques constats sur ce qui a été fait, cochés ou non.
+
+Une partie terminée reste consultable&nbsp;: elle apparaît dans le menu avec la mention
+« Terminée » et s'ouvre directement sur son bilan.
+
+## 7. Les paramètres
 
 Accessibles depuis la barre latérale pendant une partie, ou depuis le menu d'accueil.
 
@@ -170,6 +199,9 @@ serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtr
   répond avant même de commencer.
 - **La partie IA commentée.** Donner un objectif à une IA, puis relire son historique
   ensemble et discuter chaque justification.
+- **Le bilan qui dégonfle.** Terminer une partie qui a bien marché et lire à voix haute la
+  phrase du bilan qui ramène le résultat à l'année. C'est le moment où « j'ai fait
+  +40 % » devient une question plutôt qu'une conclusion.
 
 ## Rappel
 

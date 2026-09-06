@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { areaPath, direction, extent, linePath } from "../js/sparkline.js";
+import { areaPath, direction, extent, linePath, valueY } from "../js/sparkline.js";
 
 test("an empty or single-point series is not a curve", () => {
   assert.equal(linePath([], 100, 40), "");
@@ -61,4 +61,28 @@ test("extent describes where a series sits", () => {
     { low: 1, high: 5, first: 3, last: 5 }
   );
   assert.equal(extent([]), null);
+});
+
+test("a reference line lands on the same scale as the curve", () => {
+  const bounds = extent([100, 200]);
+
+  // The top of the series is the top of the box, minus the padding; the bottom
+  // is the bottom. A value halfway up must land halfway down the canvas.
+  assert.equal(valueY(bounds, 200, 100), 2);
+  assert.equal(valueY(bounds, 100, 100), 98);
+  assert.equal(valueY(bounds, 150, 100), 50);
+});
+
+test("a target the curve never reached gets no line at all", () => {
+  const bounds = extent([100, 120, 140]);
+
+  // Above and below the series: clamping either to the edge of the box would
+  // draw the portfolio brushing a target it was nowhere near.
+  assert.equal(valueY(bounds, 250, 100), null);
+  assert.equal(valueY(bounds, 10, 100), null);
+
+  // And nothing sensible to draw against a flat series or a missing target.
+  assert.equal(valueY(extent([100, 100]), 100, 100), null);
+  assert.equal(valueY(bounds, Number.NaN, 100), null);
+  assert.equal(valueY(null, 120, 100), null);
 });

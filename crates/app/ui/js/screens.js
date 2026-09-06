@@ -7,7 +7,13 @@
  */
 
 import { $, $$, appendAll, clear, directionClass, el } from "./ui.js";
-import { areaPath, direction as curveDirection, linePath } from "./sparkline.js";
+import {
+  areaPath,
+  direction as curveDirection,
+  extent,
+  linePath,
+  valueY,
+} from "./sparkline.js";
 
 /** Maps a direction to the class that colours it. Exported for the dialogs. */
 export function toneClass(way) {
@@ -56,10 +62,12 @@ export function renderGames(games, { onOpen, onDelete }) {
         el("button", { class: "game-card-open", type: "button", onClick: () => onOpen(game.id) }, [
           el("span", { class: "game-card-top" }, [
             el("span", { class: "game-card-name", text: game.playerName }),
-            el("span", {
-              class: game.byAi ? "badge badge-ai" : "badge",
-              text: game.byAi ? "IA" : "Personne",
-            }),
+            game.finished
+              ? el("span", { class: "badge badge-done", text: "Terminée" })
+              : el("span", {
+                  class: game.byAi ? "badge badge-ai" : "badge",
+                  text: game.byAi ? "IA" : "Personne",
+                }),
           ]),
           el("span", { class: "game-card-meta", text: `${game.cash} disponible` }),
           el("span", {
@@ -95,10 +103,22 @@ export function renderDashboard(view, { onSell, onOpen }) {
   delta.textContent = `${view.totalPnl} (${view.totalPnlPercent})`;
   delta.className = `value-delta ${directionClass(view.direction)}`;
 
-  // In an AI game the human watches; a buy button would be a lie.
-  $("#observer-pill").hidden = !view.observerMode;
-  $("#dash-actions").hidden = view.observerMode;
-  $("#nav-market").disabled = view.observerMode;
+  // In an AI game the human watches; a buy button would be a lie. Once the
+  // game is over nobody trades, so the same controls go away for good and the
+  // summary becomes reachable.
+  const readOnly = view.observerMode || view.finished;
+  $("#observer-pill").hidden = !view.observerMode || view.finished;
+  $("#dash-actions").hidden = readOnly;
+  $("#nav-market").disabled = readOnly;
+  $("#nav-summary").hidden = !view.finished;
+
+  // The holdings are still quoted live, so the frozen result has to be named
+  // right beside the running total or the two numbers look like a mistake.
+  const done = $("#finished-pill");
+  done.hidden = !view.finished;
+  done.textContent = view.endValue
+    ? `${view.endReasonLabel ?? "Partie terminée"} — résultat figé à ${view.endValue}`
+    : (view.endReasonLabel ?? "Partie terminée");
 
   renderPlayerCard(view);
   renderStats(view);
@@ -106,7 +126,7 @@ export function renderDashboard(view, { onSell, onOpen }) {
   renderCurve(view.valueHistory, view.valueHistoryLabel, view.currency);
   renderAllocation(view.allocation);
   fitDashSplit();
-  renderPositions(view, { onSell, onOpen });
+  renderPositions(view, { onSell, onOpen, readOnly });
   renderSourceNote(view);
 }
 
@@ -296,7 +316,7 @@ function tableHead(columns) {
   );
 }
 
-function renderPositions(view, { onSell, onOpen }) {
+function renderPositions(view, { onSell, onOpen, readOnly }) {
   const table = clear($("#position-table"));
 
   if (view.positions.length === 0) {
@@ -365,7 +385,7 @@ function renderPositions(view, { onSell, onOpen }) {
             text: "Fiche",
             onClick: () => onOpen(position),
           }),
-          view.observerMode
+          readOnly
             ? null
             : el("button", {
                 type: "button",
@@ -538,6 +558,126 @@ export function renderAiFeed(trades, visible) {
               text: trade.realizedPnl,
             })
           : null,
+      ])
+    );
+  }
+}
+
+/* -------------------------------------------------------------- summary */
+
+/**
+ * The end-of-game screen.
+ *
+ * Every figure comes from the outcome written when the game stopped, not from
+ * today's prices. A summary that moved every time it was opened would be a
+ * running total, not a record.
+ */
+export function renderSummary(view) {
+  $("#summary-verdict").textContent = view.reasonLabel;
+  $("#summary-verdict").className = `summary-verdict reason-${view.reason}`;
+  $("#summary-meta").textContent =
+    `${view.playerName} · ${view.byAi ? "partie IA" : "partie humaine"} · ${view.period}`;
+
+  $("#summary-headline").textContent = view.headline;
+
+  appendAll(
+    clear($("#summary-line")),
+    `Départ à ${view.startingCash} · `,
+    el("strong", { class: directionClass(view.direction), text: view.profit }),
+    ` ${view.duration}, soit `,
+    el("strong", { class: directionClass(view.direction), text: view.profitPercent }),
+    "."
+  );
+
+  drawSummaryCurve(view);
+  renderSummaryStats(view);
+
+  $("#summary-lesson").textContent = view.lesson;
+  renderBadges(view.badges);
+}
+
+function drawSummaryCurve(view) {
+  const figure = $("#summary-curve");
+  const points = Array.isArray(view.valueHistory) ? view.valueHistory : [];
+  const goalLine = $("#summary-goal-line");
+
+  figure.hidden = points.length < 2;
+  $("#summary-legend").textContent =
+    points.length < 2
+      ? "Trop peu de relevés pour tracer la partie."
+      : `${points.length} relevés · départ à ${view.startingCash}` +
+        (view.goalTarget ? ` · objectif ${view.goalTarget}` : "");
+
+  if (points.length < 2) {
+    showGoalLine(goalLine, null);
+    return;
+  }
+
+  const way = curveDirection(points);
+  figure.classList.toggle("is-up", way > 0);
+  figure.classList.toggle("is-down", way < 0);
+  $("#summary-path").setAttribute("d", linePath(points, 700, 240));
+  $("#summary-area").setAttribute("d", areaPath(points, 700, 240));
+
+  // The target, on the same scale as the curve. `valueY` refuses a target the
+  // series never reached, so a line only appears where it means something; the
+  // legend still names the figure either way.
+  showGoalLine(goalLine, valueY(extent(points), view.goalTargetRaw, 240));
+}
+
+/**
+ * Shows or hides the target line, by attribute.
+ *
+ * `hidden` is a property of `HTMLElement`, and an SVG `<line>` is not one:
+ * assigning `element.hidden = false` on it sets a plain JavaScript property
+ * that nothing reads, leaves the markup's `hidden` attribute in place, and the
+ * line silently never appears.
+ */
+function showGoalLine(line, y) {
+  if (y === null) {
+    line.setAttribute("hidden", "");
+    return;
+  }
+  line.removeAttribute("hidden");
+  line.setAttribute("y1", y.toFixed(2));
+  line.setAttribute("y2", y.toFixed(2));
+}
+
+function renderSummaryStats(view) {
+  const best = view.best;
+  $("#summary-best").textContent = best ? best.name : "—";
+  const bestNote = $("#summary-best-note");
+  bestNote.textContent = best ? best.realizedPnl : "aucune vente gagnante";
+  bestNote.className = `stat-note ${best ? directionClass(best.direction) : ""}`;
+
+  const worst = view.worst;
+  $("#summary-worst").textContent = worst ? worst.name : "—";
+  const worstNote = $("#summary-worst-note");
+  worstNote.textContent = worst ? worst.realizedPnl : "aucune vente perdante";
+  worstNote.className = `stat-note ${worst ? directionClass(worst.direction) : ""}`;
+
+  $("#summary-trades").textContent = String(view.tradeCount);
+  $("#summary-trades-note").textContent =
+    `${view.buyCount} achat(s) · ${view.sellCount} vente(s) · ${view.volume} échangés`;
+
+  // Only closed positions have a result, so the denominator says so out loud.
+  $("#summary-winrate").textContent = view.winRate ?? "—";
+  $("#summary-winrate-note").textContent = view.winRate
+    ? `${view.winningCount} sur ${view.closedCount} vente(s)`
+    : "aucune vente pour l'instant";
+}
+
+function renderBadges(badges) {
+  const list = clear($("#summary-badges"));
+
+  for (const badge of badges ?? []) {
+    list.append(
+      el("li", { class: badge.earned ? "badge-row is-earned" : "badge-row" }, [
+        el("span", { class: "badge-mark", text: badge.earned ? "✓" : "○", "aria-hidden": "true" }),
+        el("span", {}, [
+          el("span", { class: "badge-label", text: badge.label }),
+          el("span", { class: "badge-note", text: badge.note }),
+        ]),
       ])
     );
   }

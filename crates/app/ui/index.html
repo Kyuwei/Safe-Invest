@@ -160,6 +160,10 @@
               <span class="nav-icon" aria-hidden="true">&#8635;</span>
               <span class="nav-label">Historique</span>
             </button>
+            <button class="nav-item" type="button" data-tab="summary" id="nav-summary" hidden>
+              <span class="nav-icon" aria-hidden="true">&#9873;</span>
+              <span class="nav-label">Bilan</span>
+            </button>
           </nav>
 
           <div class="sidebar-foot">
@@ -192,8 +196,10 @@
               </div>
               <div class="page-actions" id="dash-actions">
                 <button class="primary" type="button" id="btn-dash-buy">Acheter</button>
+                <button class="ghost" type="button" id="btn-end-game">Terminer la partie</button>
               </div>
               <span class="pill" id="observer-pill" hidden>Observation — l'IA joue</span>
+              <span class="pill pill-done" id="finished-pill" hidden></span>
             </header>
 
             <section class="mission" id="mission" hidden>
@@ -314,6 +320,76 @@
             <section class="panel table-card">
               <div class="table table-history" id="history-list"></div>
             </section>
+          </div>
+
+          <!-- ----------------------------- Bilan ------------------------ -->
+          <div class="tab-panel" id="panel-summary" hidden>
+            <header class="page-head">
+              <div class="page-head-main">
+                <div class="summary-tags">
+                  <span class="summary-verdict" id="summary-verdict"></span>
+                  <span class="page-sub" id="summary-meta"></span>
+                </div>
+                <h1 class="summary-headline" id="summary-headline"></h1>
+                <p class="page-sub" id="summary-line"></p>
+              </div>
+              <div class="page-actions">
+                <button class="primary" type="button" id="btn-summary-new">Nouvelle partie</button>
+                <button class="ghost" type="button" id="btn-summary-history">
+                  Revoir l'historique
+                </button>
+              </div>
+            </header>
+
+            <div class="summary-split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Trajectoire de la partie</h2>
+                  <span class="panel-note" id="summary-legend"></span>
+                </div>
+                <figure class="curve curve-tall" id="summary-curve">
+                  <svg viewBox="0 0 700 240" preserveAspectRatio="none" role="img"
+                       aria-labelledby="summary-legend">
+                    <path class="curve-area" id="summary-area" d="" />
+                    <path class="curve-line" id="summary-path" d="" />
+                    <line class="goal-line" id="summary-goal-line"
+                          x1="0" x2="700" y1="0" y2="0" hidden />
+                  </svg>
+                </figure>
+              </section>
+
+              <div class="summary-side">
+                <div class="stat-grid stat-grid-2">
+                  <article class="stat">
+                    <span class="stat-label">Meilleur trade</span>
+                    <strong class="stat-value" id="summary-best">—</strong>
+                    <span class="stat-note" id="summary-best-note"></span>
+                  </article>
+                  <article class="stat">
+                    <span class="stat-label">Pire trade</span>
+                    <strong class="stat-value" id="summary-worst">—</strong>
+                    <span class="stat-note" id="summary-worst-note"></span>
+                  </article>
+                  <article class="stat">
+                    <span class="stat-label">Opérations</span>
+                    <strong class="stat-value" id="summary-trades">—</strong>
+                    <span class="stat-note" id="summary-trades-note"></span>
+                  </article>
+                  <article class="stat">
+                    <span class="stat-label">Ventes gagnantes</span>
+                    <strong class="stat-value" id="summary-winrate">—</strong>
+                    <span class="stat-note" id="summary-winrate-note"></span>
+                  </article>
+                </div>
+
+                <p class="lesson" id="summary-lesson"></p>
+
+                <section class="panel">
+                  <div class="panel-head"><h2>Ce que cette partie a montré</h2></div>
+                  <ul class="badge-list" id="summary-badges"></ul>
+                </section>
+              </div>
+            </div>
           </div>
 
           <!-- -------------------------- Paramètres ---------------------- -->

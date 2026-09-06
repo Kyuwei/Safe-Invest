@@ -14,6 +14,7 @@ pub mod paths;
 pub mod secret;
 pub mod settings;
 pub mod store;
+pub mod summary;
 pub mod valuation;
 pub mod watcher;
 

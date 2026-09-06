@@ -52,6 +52,7 @@ pub fn buy(
     rationale: Option<&str>,
     now: Timestamp,
 ) -> Result<Trade> {
+    validate_open(session)?;
     validate_quote(session, asset, quote)?;
     let rationale = validate_rationale(session, rationale)?;
     let fee_rate = fee_rate(session)?;
@@ -139,6 +140,7 @@ pub fn sell(
     rationale: Option<&str>,
     now: Timestamp,
 ) -> Result<Trade> {
+    validate_open(session)?;
     validate_quote(session, asset, quote)?;
     let rationale = validate_rationale(session, rationale)?;
     let fee_rate = fee_rate(session)?;
@@ -256,6 +258,21 @@ fn require_positive_amount(amount: Decimal) -> Result<Decimal> {
         ));
     }
     Ok(amount)
+}
+
+/// Refuses to touch a game that is over.
+///
+/// The summary quotes a final value taken at the moment the game stopped. One
+/// more trade afterwards would make that number a lie about a portfolio that
+/// had since changed, so the door closes here rather than in each caller.
+fn validate_open(session: &GameSession) -> Result<()> {
+    if let Some(outcome) = session.outcome {
+        return Err(TradeError::rejected(format!(
+            "Cette partie est terminée ({}). Commencez-en une nouvelle pour continuer à jouer.",
+            outcome.reason.label().to_lowercase()
+        )));
+    }
+    Ok(())
 }
 
 fn validate_quote(session: &GameSession, asset: &Asset, quote: &Quote) -> Result<()> {

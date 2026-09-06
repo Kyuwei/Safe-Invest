@@ -16,7 +16,10 @@ Deux façons de jouer :
 
 Une partie IA peut recevoir une consigne chiffrée : *atteindre 15 000 € avant le
 31 décembre 2027*. L'application montre en permanence l'avancement et le rendement annuel
-que cet objectif réclame encore.
+que cet objectif réclame encore. Quand l'objectif tombe — atteint, ou échu — la partie se
+fige et laisse un **bilan** : le résultat, la trajectoire, le meilleur et le pire trade, et
+ce que ce rythme vaudrait tenu sur un an. C'est souvent la ligne la plus instructive de
+toute la partie.
 
 ## Installer
 

@@ -11,8 +11,10 @@ use jiff::Timestamp;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use safe_invest_core::model::{
-    Asset, AssetKind, GoalProgress, GoalStatus, PlayerKind, PositionView, Quote, Trade, TradeSide,
+    Asset, AssetKind, EndReason, GameSession, GoalProgress, GoalStatus, PlayerKind, PositionView,
+    Quote, Trade, TradeSide,
 };
+use safe_invest_core::summary::Summary;
 use serde::Serialize;
 
 /// Which way a number moved: `1` up, `-1` down, `0` flat or unknown.
@@ -29,6 +31,12 @@ pub struct DashboardView {
     pub player_kind: PlayerKind,
     /// True in AI games: the interface goes read-only and becomes an observer.
     pub observer_mode: bool,
+    /// Set once the game has ended: everything goes read-only.
+    pub finished: bool,
+    pub end_reason_label: Option<String>,
+    /// The value the game was frozen at, so the live total beside it cannot be
+    /// mistaken for the result.
+    pub end_value: Option<String>,
     pub currency: String,
 
     pub total_value: String,
@@ -177,8 +185,71 @@ pub struct AssetView {
     pub held_value: Option<String>,
     pub held_average_cost: Option<String>,
     pub observer_mode: bool,
+    pub finished: bool,
     /// A sentence explaining what this kind of asset is, for someone learning.
     pub primer: String,
+}
+
+/// A finished game, in the words the summary screen shows.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryView {
+    pub player_name: String,
+    pub by_ai: bool,
+    pub currency: String,
+
+    pub reason: String,
+    pub reason_label: String,
+    /// The one sentence at the top: what the game came to.
+    pub headline: String,
+    pub period: String,
+    pub days: i64,
+    /// "en moins d'une journée", "en 18 jours" — the sentence, not the number.
+    pub duration: String,
+
+    pub starting_cash: String,
+    pub final_value: String,
+    pub profit: String,
+    pub profit_percent: String,
+    pub direction: Direction,
+    pub goal_target: Option<String>,
+    /// The target as a plain number, so the chart can draw the line it is.
+    pub goal_target_raw: Option<f64>,
+
+    pub trade_count: usize,
+    pub buy_count: usize,
+    pub sell_count: usize,
+    pub volume: String,
+
+    pub best: Option<TradeResultView>,
+    pub worst: Option<TradeResultView>,
+    pub win_rate: Option<String>,
+    pub closed_count: usize,
+    pub winning_count: usize,
+
+    pub badges: Vec<BadgeView>,
+    /// The whole game's curve, for the trajectory chart.
+    pub value_history: Vec<f64>,
+    /// What not to conclude from the result. The point of the screen.
+    pub lesson: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TradeResultView {
+    pub symbol: String,
+    pub name: String,
+    pub realized_pnl: String,
+    pub direction: Direction,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BadgeView {
+    pub id: String,
+    pub label: String,
+    pub note: String,
+    pub earned: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +292,11 @@ pub fn dashboard(report: &PortfolioReport) -> DashboardView {
         player_name: session.player_name.clone(),
         player_kind: session.player_kind,
         observer_mode: session.player_kind == PlayerKind::Ai,
+        finished: session.is_over(),
+        end_reason_label: session.outcome.map(|o| o.reason.label().to_owned()),
+        end_value: session
+            .outcome
+            .map(|outcome| money(outcome.final_value, currency)),
         currency: currency.clone(),
 
         total_value: money(snapshot.total_value, currency),
@@ -457,6 +533,7 @@ pub fn asset_view(report: &crate::ops::AssetReport) -> AssetView {
             .as_ref()
             .map(|h| money(h.average_cost, currency)),
         observer_mode: report.observer_mode,
+        finished: report.finished,
         primer: primer_for(report.asset.kind).to_owned(),
     }
 }
@@ -505,6 +582,161 @@ fn primer_for(kind: safe_invest_core::model::AssetKind) -> &'static str {
     }
 }
 
+pub fn summary(session: &GameSession, summary: &Summary) -> SummaryView {
+    let currency = &session.currency;
+    let target = session.goal.map(|goal| money(goal.target_amount, currency));
+
+    let headline = match (&target, summary.reason) {
+        (Some(target), EndReason::GoalReached) => format!(
+            "{} atteints sur un objectif de {target}",
+            money(summary.final_value, currency)
+        ),
+        (Some(target), EndReason::DeadlinePassed) => format!(
+            "{} au terme du délai — l'objectif de {target} n'a pas été touché",
+            money(summary.final_value, currency)
+        ),
+        (Some(target), EndReason::Stopped) => format!(
+            "{} à l'arrêt de la partie, sur un objectif de {target}",
+            money(summary.final_value, currency)
+        ),
+        (None, _) => format!(
+            "{} au terme de la partie",
+            money(summary.final_value, currency)
+        ),
+    };
+
+    SummaryView {
+        player_name: session.player_name.clone(),
+        by_ai: session.player_kind == PlayerKind::Ai,
+        currency: currency.clone(),
+
+        reason: summary.reason.as_str().to_owned(),
+        reason_label: summary.reason.label().to_owned(),
+        headline,
+        period: format!(
+            "du {} au {}",
+            date(summary.started_at),
+            date(summary.ended_at)
+        ),
+        days: summary.days,
+        duration: duration_of(summary.days),
+
+        starting_cash: money(session.starting_cash, currency),
+        final_value: money(summary.final_value, currency),
+        profit: signed_money(summary.profit, currency),
+        profit_percent: signed_percent(summary.profit_percent),
+        direction: direction_of(Some(summary.profit)),
+        goal_target: target,
+        goal_target_raw: session.goal.map(|goal| to_f64(goal.target_amount)),
+
+        trade_count: summary.trade_count,
+        buy_count: summary.buy_count,
+        sell_count: summary.sell_count,
+        volume: money(summary.volume, currency),
+
+        best: summary
+            .best
+            .as_ref()
+            .map(|result| trade_result(result, currency)),
+        worst: summary
+            .worst
+            .as_ref()
+            .map(|result| trade_result(result, currency)),
+        win_rate: summary.win_rate_percent.map(percent),
+        closed_count: summary.closed_count,
+        winning_count: summary.winning_count,
+
+        badges: summary
+            .badges
+            .iter()
+            .map(|badge| BadgeView {
+                id: badge.id.to_owned(),
+                label: badge.label.to_owned(),
+                note: badge.note.to_owned(),
+                earned: badge.earned,
+            })
+            .collect(),
+        value_history: session
+            .value_history
+            .iter()
+            .map(|point| to_f64(point.total_value))
+            .collect(),
+        lesson: lesson_for(session.starting_cash, summary.final_value, summary.days),
+    }
+}
+
+fn trade_result(
+    result: &safe_invest_core::summary::TradeResult,
+    currency: &str,
+) -> TradeResultView {
+    TradeResultView {
+        symbol: result.symbol.clone(),
+        name: result.name.clone(),
+        realized_pnl: signed_money(result.realized_pnl, currency),
+        direction: direction_of(Some(result.realized_pnl)),
+    }
+}
+
+/// How long the game ran, said rather than counted.
+///
+/// "en 0 jour(s)" is what a number does when nobody looks at the edges.
+fn duration_of(days: i64) -> String {
+    match days {
+        ..=0 => "en moins d'une journée".to_owned(),
+        1 => "en une journée".to_owned(),
+        days => format!("en {days} jours"),
+    }
+}
+
+/// What the result is worth as a lesson, rather than as a score.
+///
+/// A simulator that ends on "+161 %, bravo" teaches the opposite of what it is
+/// for. The honest move is to say what the same rate would mean over a year,
+/// because that is the number a person will otherwise assume applies to their
+/// real savings.
+fn lesson_for(starting: Decimal, final_value: Decimal, days: i64) -> String {
+    if days < 1 {
+        return "La partie a duré moins d'une journée : de quoi voir comment passe un ordre, \
+                pas de quoi juger une stratégie."
+            .to_owned();
+    }
+
+    // Days comfortably fit an i32, and going through it keeps the conversion
+    // exact rather than merely probably-exact.
+    let years = f64::from(i32::try_from(days).unwrap_or(i32::MAX)) / 365.25;
+    let Some(rate) = safe_invest_core::goal::annualised(starting, final_value, years) else {
+        return "Trop peu de recul pour transformer ce résultat en rythme annuel.".to_owned();
+    };
+
+    let shown = signed_percent(rate);
+
+    if rate > Decimal::from(50) {
+        format!(
+            "Ramené à l'année, ce résultat vaut {shown} par an. Aucun placement réel ne tient ce \
+             rythme sur la durée : il vient d'une période courte et d'un marché qui allait dans \
+             le bon sens. La même stratégie sur un marché baissier aurait pris le chemin inverse."
+        )
+    } else if rate > Decimal::from(12) {
+        format!(
+            "Ramené à l'année, ce résultat vaut {shown} par an — nettement au-dessus des 7 à 8 % \
+             qu'un marché actions rapporte en moyenne sur longue durée. Un bon passage, pas une \
+             norme."
+        )
+    } else if rate >= Decimal::ZERO {
+        format!(
+            "Ramené à l'année, ce résultat vaut {shown} par an : l'ordre de grandeur d'un marché \
+             actions sur longue durée. C'est à quoi ressemble un résultat ordinaire, et c'est \
+             déjà beaucoup."
+        )
+    } else {
+        format!(
+            "Ramené à l'année, ce résultat vaut {shown} par an. Une perte n'est pas une faute — \
+             elle fait partie du métier, et un simulateur est exactement l'endroit où la \
+             découvrir sans qu'elle coûte quoi que ce soit."
+        )
+    }
+}
+
 pub fn market_row(asset: &Asset, quote: Option<&Quote>, currency: &str) -> MarketRow {
     MarketRow {
         symbol: asset.symbol.clone(),
@@ -537,6 +769,11 @@ pub fn signed_money(value: Decimal, currency: &str) -> String {
 pub fn signed_percent(value: Decimal) -> String {
     let sign = if value > Decimal::ZERO { "+" } else { "" };
     format!("{sign}{} %", grouped(value.round_dp(2), 2))
+}
+
+/// A share of something, with no sign: a win rate is not a gain.
+pub fn percent(value: Decimal) -> String {
+    format!("{} %", grouped(value.round_dp(1), 1))
 }
 
 /// Quantities keep as many decimals as they need, up to eight, with no
@@ -709,5 +946,34 @@ mod tests {
         assert_eq!(direction_of(Some(Decimal::ZERO)), 0);
         assert_eq!(direction_of(Some(d("0.01"))), 1);
         assert_eq!(direction_of(Some(d("-0.01"))), -1);
+    }
+
+    /// The whole point of the summary screen: a spectacular short-run result
+    /// must not be handed over without the sentence that puts it in scale.
+    #[test]
+    fn a_spectacular_result_is_reported_as_unrepeatable() {
+        let lesson = lesson_for(d("10000"), d("26140"), 18);
+        assert!(lesson.contains("Aucun placement réel"), "{lesson}");
+    }
+
+    #[test]
+    fn an_ordinary_result_is_named_as_ordinary() {
+        let lesson = lesson_for(d("10000"), d("10700"), 365);
+        assert!(lesson.contains("ordinaire"), "{lesson}");
+    }
+
+    #[test]
+    fn a_loss_is_not_dressed_up_as_a_failure() {
+        let lesson = lesson_for(d("10000"), d("8500"), 365);
+        assert!(lesson.contains("pas une faute"), "{lesson}");
+    }
+
+    /// Under a day there is no rate worth quoting: the arithmetic explodes and
+    /// the number would say more about the divisor than about the player.
+    #[test]
+    fn a_game_shorter_than_a_day_gets_no_annual_rate() {
+        let lesson = lesson_for(d("10000"), d("11000"), 0);
+        assert!(lesson.contains("moins d'une journée"), "{lesson}");
+        assert!(!lesson.contains("par an"), "{lesson}");
     }
 }

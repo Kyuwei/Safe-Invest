@@ -53,6 +53,7 @@ et attend correctement.
 | `create_game` | Démarre une partie et en fait la partie courante |
 | `open_game` | Rend courante une partie existante |
 | `set_goal` | Fixe le montant à atteindre et la date limite |
+| `end_game` | Termine la partie à sa valeur du moment ; plus aucun ordre ensuite |
 
 ### Lecture
 
@@ -62,6 +63,7 @@ et attend correctement.
 | `get_goal_progress` | Avancement, jours restants, rendement encore nécessaire |
 | `get_trade_history` | Historique daté, avec la justification de chaque opération |
 | `get_market_sources` | Quelle source répond, laquelle est en échec et pourquoi |
+| `get_summary` | Bilan d'une partie terminée : résultat, meilleur et pire trade, leçon |
 
 ### Marché
 
@@ -109,7 +111,25 @@ get_price_history    CW8.PA     → regarder la tendance
 buy                  CW8.PA, amount 4000, rationale "…"
 get_portfolio                   → vérifier le résultat
 get_goal_progress               → +12 %/an encore nécessaires
+…
+get_summary                     → une fois la partie terminée, le bilan
 ```
+
+## La fin d'une partie
+
+Une partie se termine de trois façons, et dans les trois cas la valeur du portefeuille
+est **figée à cet instant** : le bilan raconte ce qui s'est passé, il ne se recalcule pas
+au cours du jour.
+
+| Fin | Déclencheur |
+| --- | --- |
+| `goalReached` | Le montant visé est atteint, à la première évaluation qui le constate |
+| `deadlinePassed` | La date limite est passée |
+| `stopped` | `end_game`, ou le bouton « Terminer la partie » dans la fenêtre |
+
+Les deux premières sont automatiques : il n'y a rien à appeler. `get_portfolio` renvoie
+alors un champ `outcome`, et tout `buy` ou `sell` est refusé avec une phrase qui le dit.
+Une IA qui vérifie `outcome` avant d'agir n'aura jamais à lire ce refus.
 
 ## Conventions d'arguments
 

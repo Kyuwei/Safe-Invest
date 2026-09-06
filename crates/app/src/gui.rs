@@ -50,6 +50,8 @@ pub fn run(options: &Options) -> anyhow::Result<()> {
             crate::commands::delete_game,
             crate::commands::set_goal,
             crate::commands::dashboard,
+            crate::commands::end_game,
+            crate::commands::summary,
             crate::commands::history,
             crate::commands::market,
             crate::commands::asset,

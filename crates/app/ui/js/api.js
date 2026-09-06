@@ -50,6 +50,8 @@ export const api = {
   setGoal: (targetAmount, deadline) => call("set_goal", { targetAmount, deadline }),
 
   dashboard: () => call("dashboard"),
+  endGame: () => call("end_game"),
+  summary: () => call("summary"),
   history: (limit) => call("history", { limit: limit ?? null }),
   market: (query, kind) => call("market", { query, kind }),
   asset: (symbol, kind, days) => call("asset", { symbol, kind, days: days ?? null }),

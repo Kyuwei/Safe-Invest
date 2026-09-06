@@ -7,8 +7,8 @@ use rust_decimal::Decimal;
 use safe_invest_core::engine::{self, TradeAmount};
 use safe_invest_core::factory::{self, NewGame};
 use safe_invest_core::model::{
-    Asset, AssetKind, GameSession, GameSummary, Goal, GoalProgress, PlayerKind, PortfolioSnapshot,
-    Quote, Trade,
+    Asset, AssetKind, EndReason, GameSession, GameSummary, Goal, GoalProgress, GoalStatus,
+    PlayerKind, PortfolioSnapshot, Quote, Trade,
 };
 use safe_invest_core::settings::AppSettings;
 use safe_invest_core::{goal, valuation};
@@ -107,6 +107,8 @@ pub struct AssetReport {
     pub cash: Decimal,
     pub fee_percent: Decimal,
     pub observer_mode: bool,
+    /// The game is over: nothing here can be bought or sold any more.
+    pub finished: bool,
 }
 
 /// A portfolio, its goal, and the quotes it was valued with.
@@ -234,26 +236,71 @@ impl Context {
         let snapshot = valuation::snapshot(&session, &quotes, now);
         let goal = goal::evaluate(&session, &snapshot, now);
 
+        // A goal that has been met, or a deadline that has gone by, ends the
+        // game here — at the valuation that decided it. Waiting for someone to
+        // press a button would let the recorded result drift away from the one
+        // that was actually reached.
+        let ending = goal.as_ref().and_then(|progress| match progress.status {
+            GoalStatus::Achieved => Some(EndReason::GoalReached),
+            GoalStatus::Expired => Some(EndReason::DeadlinePassed),
+            GoalStatus::OnTrack | GoalStatus::Behind => None,
+        });
+
         // The curve is recorded as the portfolio is valued, never reconstructed
         // afterwards: a reconstruction would have to invent prices nobody wrote
         // down. `record_value` keeps at most one reading a quarter-hour, and the
-        // save file is only rewritten when it actually kept one.
+        // save file is only rewritten when it actually kept one — or when the
+        // game just ended, which is always worth a write.
         let mut session = session;
-        let recorded = self
+        let updated = self
             .store()
             .mutate_if(session.id, |stored| {
                 let kept = stored.record_value(now, snapshot.total_value);
-                Ok::<_, ServiceError>((kept.then(|| stored.value_history.clone()), kept))
+                let ended =
+                    ending.is_some_and(|reason| stored.finish(reason, snapshot.total_value, now));
+                let changed = kept || ended;
+                Ok::<_, ServiceError>((
+                    changed.then(|| (stored.value_history.clone(), stored.outcome)),
+                    changed,
+                ))
             })
             .unwrap_or(None);
-        if let Some(history) = recorded {
+        if let Some((history, outcome)) = updated {
             session.value_history = history;
+            session.outcome = outcome;
         }
 
         Ok(PortfolioReport {
             session,
             snapshot,
             goal,
+        })
+    }
+
+    /// Ends a game on request, at the value it has right now.
+    ///
+    /// It values the portfolio first, so the number kept is a real one rather
+    /// than whatever the last refresh happened to leave behind. Ending a game
+    /// that is already over changes nothing and is not an error — two clicks
+    /// should not produce two different results.
+    pub async fn end_game(&self, id: Option<Uuid>, now: Timestamp) -> ServiceResult<GameSession> {
+        let report = self.portfolio(id, now).await?;
+        let value = report.snapshot.total_value;
+        let game_id = report.session.id;
+
+        self.store().mutate(game_id, |session| {
+            session.finish(EndReason::Stopped, value, now);
+            Ok::<_, ServiceError>(session.clone())
+        })
+    }
+
+    /// What a finished game amounted to. Refuses a game still in play.
+    pub fn summary(&self, id: Option<Uuid>) -> ServiceResult<safe_invest_core::summary::Summary> {
+        let session = self.load_game(id)?;
+        safe_invest_core::summary::of(&session).ok_or_else(|| {
+            ServiceError::rejected(
+                "Cette partie est encore en cours : il n'y a pas de bilan à en tirer.",
+            )
         })
     }
 
@@ -325,7 +372,10 @@ impl Context {
                 .and_then(|g| g.find_holding(kind, &asset.symbol).cloned()),
             cash: session.as_ref().map_or(Decimal::ZERO, |g| g.cash),
             fee_percent: session.as_ref().map_or(Decimal::ZERO, |g| g.fee_percent),
-            observer_mode: session.is_some_and(|g| g.player_kind == PlayerKind::Ai),
+            observer_mode: session
+                .as_ref()
+                .is_some_and(|g| g.player_kind == PlayerKind::Ai),
+            finished: session.as_ref().is_some_and(GameSession::is_over),
             quote: quotes.get(&asset.key()).cloned(),
             asset,
             history,

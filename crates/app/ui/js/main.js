@@ -73,6 +73,9 @@ function bindNavigation() {
   $("#how-close").addEventListener("click", () => $("#how-dialog").close());
   $("#nav-quit").addEventListener("click", () => goHome());
   $("#btn-dash-buy").addEventListener("click", () => selectTab("market"));
+  $("#btn-end-game").addEventListener("click", endGame);
+  $("#btn-summary-new").addEventListener("click", () => goHome());
+  $("#btn-summary-history").addEventListener("click", () => selectTab("history"));
 
   for (const item of $$(".nav-item[data-tab]")) {
     item.addEventListener("click", () => selectTab(item.dataset.tab));
@@ -85,6 +88,7 @@ function selectTab(name) {
   if (name === "market") loadMarket();
   if (name === "history") loadHistory();
   if (name === "settings") loadSettings();
+  if (name === "summary") loadSummary();
 }
 
 /* --------------------------------------------------------------- home */
@@ -221,7 +225,48 @@ function enterShell(tab, inGame) {
 async function enterGame() {
   enterShell("dashboard", true);
   await refreshGame();
+
+  // A finished game opens on its summary: the portfolio behind it can no
+  // longer change, so the result is the thing worth showing first.
+  if (state.dashboard?.finished) {
+    selectTab("summary");
+    return;
+  }
   startRefresh();
+}
+
+/**
+ * Stops the game for good, at the value it has right now.
+ *
+ * Irreversible, and it fixes the number the summary will quote for ever, so it
+ * asks first.
+ */
+async function endGame() {
+  const ok = confirm(
+    "Terminer la partie maintenant ?\n\n" +
+      "Le résultat sera figé à la valeur actuelle du portefeuille et plus aucun ordre " +
+      "ne pourra être passé."
+  );
+  if (!ok) return;
+
+  try {
+    state.dashboard = await api.endGame();
+    stopRefresh();
+    await refreshGame();
+    selectTab("summary");
+    toast("Partie terminée. Voici le bilan.", "ok");
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+async function loadSummary() {
+  if (!state.inGame) return;
+  try {
+    screens.renderSummary(await api.summary());
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function refreshGame({ quiet = false } = {}) {
@@ -241,6 +286,7 @@ async function refreshGame({ quiet = false } = {}) {
     }
 
     if (state.tab === "history") await loadHistory();
+    if (state.tab === "summary") await loadSummary();
   } catch (error) {
     if (!quiet) reportError(error);
   }
@@ -397,9 +443,11 @@ async function openAsset(symbol, kind) {
     screens.renderAssetFacts(view);
     screens.renderAssetHolding(view);
 
-    // In an AI game the window watches; offering the buttons would be a lie.
-    $("#asset-buy").hidden = view.observerMode;
-    $("#asset-sell").hidden = view.observerMode || !view.heldQuantity;
+    // In an AI game the window watches, and a finished game trades no more;
+    // offering the buttons in either case would be a lie.
+    const readOnly = view.observerMode || view.finished;
+    $("#asset-buy").hidden = readOnly;
+    $("#asset-sell").hidden = readOnly || !view.heldQuantity;
 
     dialog.showModal();
   } catch (error) {

@@ -17,7 +17,7 @@ use rust_decimal::Decimal;
 use safe_invest_core::engine::{self, TradeAmount, TradeError};
 use safe_invest_core::factory::{self, NewGame, NewGameError};
 use safe_invest_core::model::{
-    Asset, AssetKind, GameSession, Goal, GoalStatus, PlayerKind, Quote, TradeSide,
+    Asset, AssetKind, EndReason, GameSession, Goal, GoalStatus, PlayerKind, Quote, TradeSide,
 };
 use safe_invest_core::{goal, valuation};
 use std::collections::HashMap;
@@ -789,4 +789,86 @@ fn a_reading_offered_out_of_order_is_refused_rather_than_scrambling_the_curve() 
         session.value_history.windows(2).all(|w| w[0].at <= w[1].at),
         "la courbe doit rester ordonnée dans le temps"
     );
+}
+
+// ------------------------------------------------------------ end of game
+
+#[test]
+fn a_finished_game_refuses_to_trade() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let asset = btc();
+    let quote = quote(&asset, "50000");
+
+    // One ordinary purchase, so the refusal below is clearly about the ending
+    // and not about an empty portfolio.
+    engine::buy(
+        &mut session,
+        &asset,
+        &quote,
+        TradeAmount::Cash(d("1000")),
+        None,
+        now(),
+    )
+    .unwrap();
+
+    assert!(session.finish(EndReason::Stopped, d("10000"), now()));
+    assert!(session.is_over());
+
+    let refused = engine::buy(
+        &mut session,
+        &asset,
+        &quote,
+        TradeAmount::Cash(d("100")),
+        None,
+        now(),
+    );
+    assert!(matches!(refused, Err(TradeError::Rejected(_))));
+
+    let refused = engine::sell(&mut session, &asset, &quote, TradeAmount::All, None, now());
+    assert!(matches!(refused, Err(TradeError::Rejected(_))));
+}
+
+#[test]
+fn a_game_keeps_the_value_it_ended_on() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+
+    assert!(session.finish(EndReason::GoalReached, d("15000"), now()));
+
+    // A second ending — a background refresh racing a manual stop — must not
+    // move the finish line, or the summary would quote a different result
+    // depending on which write happened to land last.
+    assert!(!session.finish(EndReason::Stopped, d("9000"), now()));
+
+    let outcome = session.outcome.unwrap();
+    assert_eq!(outcome.reason, EndReason::GoalReached);
+    assert_eq!(outcome.final_value, d("15000"));
+}
+
+#[test]
+fn an_older_save_without_an_outcome_still_loads_and_is_playable() {
+    // Games written before this field existed have no `outcome` key at all.
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let json = serde_json::to_string(&session).unwrap();
+    assert!(!json.contains("outcome"));
+
+    session = serde_json::from_str(&json).unwrap();
+    assert!(!session.is_over());
+}
+
+#[test]
+fn a_finished_game_stops_recording_its_curve() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let later = at("2026-01-01T13:00:00Z");
+
+    // While it runs, a reading a full interval later is kept.
+    assert!(session.record_value(later, d("10500")));
+    let points = session.value_history.len();
+
+    assert!(session.finish(EndReason::Stopped, d("10500"), later));
+
+    // Afterwards the holdings are still quoted for the portfolio screen, but
+    // the trajectory of the game must not grow past the end of the game.
+    let after = at("2026-01-02T13:00:00Z");
+    assert!(!session.record_value(after, d("9000")));
+    assert_eq!(session.value_history.len(), points);
 }

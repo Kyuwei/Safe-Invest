@@ -191,6 +191,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "get_portfolio",
     "set_goal",
     "get_goal_progress",
+    "end_game",
+    "get_summary",
     "get_trade_history",
     "get_market_sources",
     "search_assets",
@@ -345,6 +347,13 @@ impl SafeInvestServer {
                 "isSimulated": p.is_simulated,
             })).collect::<Vec<_>>(),
             "goal": report.goal.as_ref().map(goal_json),
+            // Present means the game is over and every order will be refused.
+            "outcome": report.session.outcome.map(|outcome| json!({
+                "endedAt": outcome.ended_at.to_string(),
+                "reason": outcome.reason.as_str(),
+                "reasonLabel": outcome.reason.label(),
+                "finalValue": outcome.final_value.to_string(),
+            })),
         })))
     }
 
@@ -396,6 +405,50 @@ impl SafeInvestServer {
             Some(progress) => goal_json(&progress),
             None => json!({ "goal": null, "message": "Cette partie n'a pas d'objectif." }),
         }))
+    }
+
+    #[tool(
+        name = "end_game",
+        description = "Termine la partie à sa valeur actuelle. Plus aucun ordre ne sera accepté ensuite. Une partie dont l'objectif est atteint ou dont la date limite est passée se termine d'elle-même : cet outil sert à s'arrêter avant."
+    )]
+    async fn end_game(
+        &self,
+        Parameters(args): Parameters<GameRef>,
+    ) -> Result<Json<Value>, ErrorData> {
+        let id = optional_uuid(args.game_id.as_deref())?;
+        let session = self
+            .context
+            .end_game(id, jiff::Timestamp::now())
+            .await
+            .map_err(|e| to_error(&e))?;
+
+        let outcome = session.outcome.map(|outcome| {
+            json!({
+                "endedAt": outcome.ended_at.to_string(),
+                "reason": outcome.reason.as_str(),
+                "reasonLabel": outcome.reason.label(),
+                "finalValue": outcome.final_value.to_string(),
+            })
+        });
+
+        Ok(Json(json!({
+            "gameId": session.id.to_string(),
+            "outcome": outcome,
+        })))
+    }
+
+    #[tool(
+        name = "get_summary",
+        description = "Bilan d'une partie terminée : résultat, durée, meilleur et pire trade, part des ventes gagnantes, et ce que le résultat vaut ramené à l'année. Refuse une partie encore en cours."
+    )]
+    fn get_summary(&self, Parameters(args): Parameters<GameRef>) -> Result<Json<Value>, ErrorData> {
+        let id = optional_uuid(args.game_id.as_deref())?;
+        let summary = self.context.summary(id).map_err(|e| to_error(&e))?;
+        let session = self.context.load_game(id).map_err(|e| to_error(&e))?;
+
+        serde_json::to_value(view::summary(&session, &summary))
+            .map(Json)
+            .map_err(|error| ErrorData::internal_error(format!("bilan illisible : {error}"), None))
     }
 
     #[tool(

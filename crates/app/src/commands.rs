@@ -115,6 +115,9 @@ pub struct GameCard {
     pub trade_count: usize,
     pub updated_at: String,
     pub has_goal: bool,
+    /// Finished games open on their summary rather than on the portfolio.
+    pub finished: bool,
+    pub end_reason_label: Option<String>,
 }
 
 #[tauri::command]
@@ -134,6 +137,8 @@ pub fn list_games(context: tauri::State<'_, Context>) -> Vec<GameCard> {
             trade_count: game.trade_count,
             updated_at: view::datetime(game.updated_at),
             has_goal: game.goal.is_some(),
+            finished: game.outcome.is_some(),
+            end_reason_label: game.outcome.map(|o| o.reason.label().to_owned()),
         })
         .collect()
 }
@@ -289,6 +294,22 @@ pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answ
             .map(|trade| view::trade(trade, &session.currency))
             .collect(),
     })
+}
+
+/// Ends the current game at the value it has right now.
+#[tauri::command]
+pub async fn end_game(context: tauri::State<'_, Context>) -> Answer<DashboardView> {
+    let now = jiff::Timestamp::now();
+    context.end_game(None, now).await?;
+    Ok(view::dashboard(&context.portfolio(None, now).await?))
+}
+
+/// What a finished game amounted to. Refuses a game still in play.
+#[tauri::command]
+pub fn summary(context: tauri::State<'_, Context>) -> Answer<view::SummaryView> {
+    let session = context.load_game(None)?;
+    let summary = context.summary(None)?;
+    Ok(view::summary(&session, &summary))
 }
 
 // ----------------------------------------------------------------- market

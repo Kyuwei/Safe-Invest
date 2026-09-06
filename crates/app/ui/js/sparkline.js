@@ -55,6 +55,23 @@ export function direction(values) {
   return 0;
 }
 
+/**
+ * Where one value sits on the scale a curve was drawn with.
+ *
+ * Returns null when the value falls outside the series, or when the series is
+ * flat. A reference line clamped to the edge of the box would claim the curve
+ * came close to something it never approached, which is exactly the kind of
+ * quiet lie a chart makes easy.
+ */
+export function valueY(bounds, value, height, padding = 2) {
+  if (!bounds || !Number.isFinite(value)) return null;
+  if (bounds.high === bounds.low) return null;
+  if (value < bounds.low || value > bounds.high) return null;
+
+  const usable = Math.max(height - padding * 2, 1);
+  return padding + (1 - (value - bounds.low) / (bounds.high - bounds.low)) * usable;
+}
+
 function points(values, bounds, width, height, padding) {
   const clean = values.filter((value) => Number.isFinite(value));
   const span = bounds.high - bounds.low;

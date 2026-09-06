@@ -90,6 +90,7 @@ pub fn create(request: NewGame, now: Timestamp) -> Result<GameSession, NewGameEr
             total_value: starting_cash,
         }],
         goal,
+        outcome: None,
         fee_percent,
         created_at: now,
         updated_at: now,
