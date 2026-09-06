@@ -5,13 +5,14 @@ que vous ferez ici ne peut vous coûter quoi que ce soit.
 
 ## 1. Le menu d'accueil
 
-Trois portes d'entrée :
+L'écran est coupé en deux. À gauche, ce que fait l'application et le bouton **Comment ça
+marche ?** — l'essentiel en deux minutes, à lire avant la première partie. À droite, le
+formulaire de **nouvelle partie**, directement : il n'y a pas d'écran intermédiaire.
 
-- **Nouvelle partie** — choisir qui joue et avec combien
-- **Réglages** — les sources de cours, les clés API, l'affichage
-- **Comment ça marche ?** — l'essentiel en deux minutes, à lire avant la première partie
+Sous le formulaire, les parties déjà commencées. Un clic les rouvre là où vous les aviez
+laissées ; la croix à droite en supprime une, après confirmation.
 
-En dessous, les parties déjà commencées. Un clic les rouvre là où vous les aviez laissées.
+Tout en bas, **Réglages** : les sources de cours, les clés API, l'accès IA et l'affichage.
 
 ## 2. Créer une partie
 
@@ -49,34 +50,40 @@ Pour un objectif plus sage, la phrase change de ton :
 C'est peut-être la leçon la plus utile de l'application, et elle arrive avant même d'avoir
 joué le premier ordre.
 
-## 3. Le tableau de bord
+## 3. Le portefeuille
 
-**La valeur totale** en gros. Juste en dessous, le gain ou la perte, en euros et en
-pourcentage, en vert si le portefeuille vaut plus que le capital de départ et en rouge
-sinon — avec un « + » explicite sur les gains, pour que la couleur ne soit jamais le seul
-signal.
+Une fois la partie ouverte, une **barre latérale** tient l'écran : Portefeuille, Marché,
+Historique, et plus bas Paramètres et le retour au menu. Un filet indigo marque la section
+courante, et une pastille en bas rappelle qui joue — vous, ou une IA.
 
-À droite, trois chiffres :
+**La valeur totale** en gros. À côté, le gain ou la perte, en euros et en pourcentage, en
+vert si le portefeuille vaut plus que le capital de départ et en rouge sinon — avec un
+« + » explicite sur les gains, pour que la couleur ne soit jamais le seul signal.
 
-- **Argent disponible** — ce qui n'est pas investi et peut servir à acheter
-- **Investi** — ce que valent aujourd'hui vos positions
-- **Gains déjà encaissés** — le résultat des ventes déjà faites, définitivement acquis
+**Quatre cartes** ensuite : ce qui est investi et sur combien de lignes, les liquidités et
+la part du total qu'elles représentent, le gain depuis le départ, et la meilleure ligne du
+portefeuille.
 
-**La courbe** apparaît sous les chiffres dès qu'il y a de quoi tracer une ligne. Elle est
-enregistrée au fil des relevés — un point tous les quarts d'heure, un mois d'historique —
-et non reconstruite après coup : une courbe reconstruite devrait deviner des cours que
-personne n'a notés.
+**La courbe** apparaît dès qu'il y a de quoi tracer une ligne. Elle est enregistrée au fil
+des relevés — un point tous les quarts d'heure, un mois d'historique — et non reconstruite
+après coup : une courbe reconstruite devrait deviner des cours que personne n'a notés.
 
-**L'anneau d'objectif** montre le chemin parcouru depuis le capital de départ, le temps
-restant, et le rendement annuel encore nécessaire.
+**La répartition**, à côté, montre comment l'argent est réparti entre cryptos, actions et
+ETF — **liquidités comprises**. Quelqu'un qui laisse neuf dixièmes de son argent en
+liquidités a un portefeuille à neuf dixièmes en liquidités, et un graphique qui l'omet dit
+le contraire de ce qu'il faut savoir.
 
-**Les lignes du portefeuille** : une carte par actif, avec la quantité, le prix d'achat
-moyen, le cours actuel et la plus ou moins-value. Le liseré de couleur à gauche dit d'un
-coup d'œil si la ligne est en gain ou en perte, et un badge donne son poids dans le
-portefeuille. Un cours simulé est signalé sous la carte.
+**Le bandeau de mission** apparaît dès qu'un objectif est fixé : le montant visé, la date,
+la barre d'avancement, les jours restants et le rythme encore nécessaire. Il s'affiche
+aussi pour une partie humaine avec objectif — qui s'en fixe un mérite le même décompte.
 
-En partie IA, une section supplémentaire liste **les dernières décisions de l'IA**, chacune
-avec sa justification.
+**Le tableau des positions** donne, par ligne : l'actif, la quantité, le cours actuel, la
+valeur, la variation sur 24 heures et la plus ou moins-value. Un cours simulé est signalé
+sous le prix. Deux boutons : **Fiche** ouvre la page de l'actif, **Vendre** solde tout ou
+partie de la ligne.
+
+En partie IA, un **journal** s'intercale : chaque décision avec son heure, son montant et
+sa justification, mis à jour en direct pendant que l'IA joue dans son processus.
 
 ## 4. Le marché
 
@@ -86,34 +93,47 @@ Sans rien taper, l'application propose une sélection d'actifs connus.
 Chaque ligne montre le cours, la variation sur 24 heures en vert ou en rouge, et la
 mention « simulé » quand le chiffre ne vient pas d'une vraie source.
 
-Le bouton **Détails** ouvre la fiche de l'actif : le cours, sa variation du jour, la
+Le bouton **Fiche** ouvre la page de l'actif : le cours, sa variation du jour, la
 courbe des trente derniers jours avec le mouvement sur la période, ce que vous en détenez
 déjà, et **une phrase sur ce qu'est ce type d'actif**. C'est le moment où quelqu'un est le
 plus disposé à la lire : juste avant d'acheter.
 
-De là, le bouton **Acheter** ouvre une fiche qui rappelle le cours et propose deux façons de
-dimensionner l'ordre :
+Le bouton **Acheter** — sur la fiche, ou directement sur la ligne du marché — ouvre une
+boîte qui rappelle le cours et propose deux façons de dimensionner l'ordre :
 
-- **pour un montant** — « 3 000 € » ; la fiche répond aussitôt *« soit environ
-  0,049 BTC au cours actuel »*, ce qui rend l'ordre concret ;
-- **par quantité** — « 0,05 BTC » ; la fiche annonce ce que cela coûtera.
+- **pour un montant** — « 3 000 € » ; elle répond aussitôt *« soit environ 0,049 BTC au
+  cours actuel »*, ce qui rend l'ordre concret ;
+- **par quantité** — « 0,05 BTC » ; elle annonce ce que cela coûtera.
 
-Depuis le tableau de bord, une position offre en plus **Vendre**, avec un troisième
-choix : **Tout vendre**, qui solde la ligne entière au cours du moment.
+La fiche est aussi d'où l'on vend, et le tableau des positions y mène en un clic. À la
+vente s'ajoute un troisième choix : **Tout vendre**, qui solde la ligne entière au cours du
+moment.
+
+Une ligne de portefeuille, elle, ne propose pas d'acheter : elle mène à la fiche. C'est
+délibéré — la fiche montre le cours, le mois écoulé et ce qu'est ce type d'actif, et c'est
+exactement ce qu'il faut avoir sous les yeux avant de remettre de l'argent sur une ligne
+qu'on détient déjà.
 
 L'estimation affichée est une prévision. Le calcul qui compte est fait par le programme
 au moment de l'ordre, en décimal exact, et c'est lui qui apparaît dans l'historique.
 
 ## 5. L'historique
 
-Chaque opération, de la plus récente à la plus ancienne : la date, l'actif, la quantité, le
-prix unitaire, le total, les frais, et le résultat réalisé pour une vente.
+Un tableau, de l'opération la plus récente à la plus ancienne : la date, l'achat ou la
+vente, l'actif, la quantité, le prix unitaire, le montant, et le résultat réalisé sous le
+montant pour une vente. En tête, le nombre d'opérations et le volume échangé depuis la
+première.
 
-Quand c'est une IA qui a joué, sa **justification** apparaît en italique sous l'opération.
-C'est le vrai support pédagogique de l'application : une suite de décisions datées et
-argumentées, qu'on peut relire et critiquer après coup.
+Un champ de recherche et trois filtres — Tout, Achats, Ventes — réduisent la liste sans
+rien recalculer : ils cachent des lignes, ils n'en changent aucune.
 
-## 6. Les réglages
+Une colonne dit **qui** a passé l'ordre, vous ou l'IA, et la dernière porte sa
+**justification**. C'est le vrai support pédagogique de l'application : une suite de
+décisions datées et argumentées, qu'on peut relire et critiquer après coup.
+
+## 6. Les paramètres
+
+Accessibles depuis la barre latérale pendant une partie, ou depuis le menu d'accueil.
 
 **Sources de cours** — l'état de chaque source, avec une pastille verte quand elle a
 répondu, rouge quand elle a échoué — avec la raison — et grise tant qu'elle n'a pas
@@ -130,6 +150,11 @@ Environ un homme sur douze distingue mal le vert du rouge ; sur un écran financ
 le signal le plus important qui devient illisible.
 
 **Rafraîchissement** — à quelle fréquence les cours sont relus.
+
+**Accès IA — serveur MCP** — le bloc de configuration à coller dans votre client, déjà
+rempli avec le chemin de *votre* exécutable, et la liste des outils qu'une IA se verra
+confier. Le serveur parle par l'entrée et la sortie standard : il n'ouvre aucun port, donc
+il n'y a ni adresse à exposer ni jeton à protéger.
 
 **Ouvrir le dossier des parties** — le dossier des sauvegardes. C'est le même que lit le
 serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtre affiche.
