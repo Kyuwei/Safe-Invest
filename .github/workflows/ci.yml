@@ -2,127 +2,179 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: ["main", "claude/**"]
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  DOTNET_NOLOGO: 1
-  DOTNET_CLI_TELEMETRY_OPTOUT: 1
-  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
-  # The WinUI XAML compiler loads its diagnostics from satellite assemblies. Pin the tool
-  # language to English so a real XAML error is reported as itself, rather than as WMC9999
-  # "could not find any resources appropriate for the specified culture".
-  DOTNET_CLI_UI_LANGUAGE: en-US
-  VSLANG: "1033"
+  CARGO_TERM_COLOR: always
+  # A failed build should say why, not spend five minutes writing debug info.
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
 
 jobs:
-  # Everything that is not WinUI builds and is tested on Linux, which is fast and
-  # catches the bulk of the regressions.
-  libraries:
-    name: Bibliothèques et tests
+  checks:
+    name: Contrôles (Linux)
     runs-on: ubuntu-latest
+    # A hung test would otherwise sit on a runner until GitHub's six-hour
+    # default. Nothing here legitimately takes twenty minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v5
+      # Tauri draws through WebKitGTK on Linux. Installing it here means clippy
+      # sees the window code too, rather than leaving it for the Windows job.
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev xvfb
+
+      - name: Chaîne d'outils
+        run: rustup show && rustc --version && cargo --version
+
+      - uses: actions/cache@v6
         with:
-          dotnet-version: "10.0.x"
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: linux-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: linux-cargo-
 
-      - name: Restaurer
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      # Two files carry the version. A release refuses to publish when they
+      # disagree, but that is late to find out.
+      - name: Version cohérente
         run: |
-          dotnet restore src/SafeInvest.Core/SafeInvest.Core.csproj
-          dotnet restore src/SafeInvest.MarketData/SafeInvest.MarketData.csproj
-          dotnet restore src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
-          dotnet restore tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj
-          dotnet restore tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj
-
-      - name: Compiler
-        run: |
-          dotnet build src/SafeInvest.Mcp/SafeInvest.Mcp.csproj -c Release --no-restore
-          dotnet build tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-restore
-          dotnet build tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-restore
-
-      - name: Tests unitaires
-        run: |
-          dotnet test tests/SafeInvest.Core.Tests/SafeInvest.Core.Tests.csproj -c Release --no-build
-          dotnet test tests/SafeInvest.MarketData.Tests/SafeInvest.MarketData.Tests.csproj -c Release --no-build
-
-      - name: Test de bout en bout du serveur MCP
-        # Cours simulés : la CI ne doit pas dépendre de la disponibilité d'API tierces.
-        run: python3 scripts/mcp-smoke-test.py --simulated
-
-      - name: Vérification de types du C# de l'application WinUI
-        # Le XAML ne se compile que sous Windows, mais le C# de l'application peut être
-        # vérifié ici : cela fait remonter une faute de frappe en quelques secondes plutôt
-        # qu'après deux minutes de compilation Windows.
-        run: ./scripts/typecheck-app.sh
-
-  # WinUI 3 ne se compile que sous Windows : c'est ici que l'application est vérifiée.
-  app:
-    name: Application WinUI 3
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Compiler la solution complète
-        run: dotnet build Safe-Invest.sln -c Release
-
-      - name: Diagnostic du compilateur XAML
-        # Le compilateur XAML s'exécute dans un processus à part et rend ses diagnostics
-        # dans un fichier JSON. Quand MSBuild n'arrive pas à formater le message (WMC9999),
-        # ce fichier reste la seule trace de l'erreur réelle.
-        if: failure()
-        shell: pwsh
-        run: |
-          $files = Get-ChildItem -Recurse -Path src/SafeInvest.App/obj -Filter *.json -ErrorAction SilentlyContinue |
-                   Where-Object { $_.Name -match 'utput|nput' }
-          if (-not $files) { Write-Host "Aucun fichier de diagnostic produit." ; exit 0 }
-          foreach ($file in $files) {
-            Write-Host "=== $($file.FullName)"
-            Get-Content $file.FullName -Raw
-            Write-Host ""
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          tauri=$(grep -m1 '"version"' crates/app/tauri.conf.json | cut -d'"' -f4)
+          echo "Cargo.toml $crate / tauri.conf.json $tauri"
+          test "$crate" = "$tauri" || {
+            echo "::error::Cargo.toml annonce $crate et tauri.conf.json $tauri"
+            exit 1
           }
 
-      - name: Recompiler avec le compilateur XAML en processus
-        # `dotnet build` fait tourner le compilateur XAML dans un exécutable .NET Framework
-        # séparé, qui n'arrive pas à charger les ressources de ses propres messages et
-        # renvoie WMC9999 à la place de l'erreur réelle. MSBuild de Visual Studio l'exécute
-        # en processus et rapporte l'erreur telle quelle.
-        if: failure()
-        shell: pwsh
+      - name: Clippy (avec interface)
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Clippy (build console)
+        run: cargo clippy --workspace --all-targets --locked --no-default-features
+
+      # Every `unsafe` line and every Win32 signature lives in the platform
+      # crate, which depends on nothing but windows-sys. That is what lets a
+      # Linux runner type-check them: everything above it pulls in `ring`, whose
+      # build script cannot cross-compile to MSVC. Without this step a wrong
+      # Win32 import only surfaces minutes into the Windows job — which is how
+      # `LocalFree` and a missing `Win32_Security` feature were both found.
+      - name: Vérifier le code Windows
         run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) { Write-Host "vswhere introuvable" ; exit 0 }
-          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild `
-                                -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
-          if (-not $msbuild) { Write-Host "MSBuild introuvable" ; exit 0 }
-          Write-Host "MSBuild : $msbuild"
-          & $msbuild src/SafeInvest.App/SafeInvest.App.csproj `
-              /p:Configuration=Release /p:Platform=AnyCPU `
-              /p:UseXamlCompilerExecutable=false `
-              /p:RestorePackages=false /v:minimal /nologo
-          exit 0
+          rustup target add x86_64-pc-windows-msvc
+          cargo clippy -p safe-invest-platform -p safe-invest-core --all-targets \
+            --locked --target x86_64-pc-windows-msvc
 
-      - name: Publier l'application (win-x64)
-        run: >
-          dotnet publish src/SafeInvest.App/SafeInvest.App.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=false
-          -o artifacts/SafeInvest-win-x64
+      - name: Tests
+        run: cargo test --workspace --locked
 
-      - name: Publier le serveur MCP (win-x64)
-        run: >
-          dotnet publish src/SafeInvest.Mcp/SafeInvest.Mcp.csproj
-          -c Release -r win-x64 --self-contained true
-          -o artifacts/SafeInvest-mcp-win-x64
+      # The interface has no build step and no package manager, but the one
+      # piece of real arithmetic in it — what a goal demands per year — is
+      # worth testing. Node's own runner, no install.
+      - name: Tests de l'interface
+        run: node --test crates/app/ui/tests/*.test.js
+
+      - name: L'application démarre vraiment
+        # The previous release compiled and then would not launch. This runs the
+        # real binary under a virtual display and fails if the window dies.
+        run: |
+          cargo build --locked
+          xvfb-run -a --server-args="-screen 0 1280x900x24" \
+            ./target/debug/safe-invest --data-dir "$RUNNER_TEMP/si" --demo &
+          APP=$!
+          sleep 12
+          if kill -0 $APP 2>/dev/null; then
+            echo "La fenêtre tient debout après 12 s."
+            kill $APP
+          else
+            echo "::error::L'application s'est arrêtée au démarrage."
+            exit 1
+          fi
+
+      - name: Diagnostic
+        run: cargo run --locked -- doctor --data-dir "$RUNNER_TEMP/si-doctor" --demo
+
+  dependencies:
+    name: Dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Installer cargo-deny et cargo-audit
+        run: |
+          set -euo pipefail
+          DENY=0.20.2
+          AUDIT=0.22.2
+          curl -sSL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY}/cargo-deny-${DENY}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin "cargo-deny-${DENY}-x86_64-unknown-linux-musl/cargo-deny"
+          curl -sSL "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${AUDIT}/cargo-audit-x86_64-unknown-linux-musl-v${AUDIT}.tgz" \
+            | tar xz --strip-components=1 -C /usr/local/bin "cargo-audit-x86_64-unknown-linux-musl-v${AUDIT}/cargo-audit"
+
+      # Licences, sources, versions en double et avis de sécurité. La politique
+      # et les exceptions justifiées sont dans deny.toml.
+      - name: cargo deny
+        run: cargo-deny check
+
+      - name: cargo audit
+        run: cargo-audit audit
+
+  windows:
+    name: Build Windows
+    runs-on: windows-latest
+    # The release build with fat LTO is the long pole, at roughly seven minutes.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Chaîne d'outils
+        run: rustup show
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: windows-cargo-
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      - name: Compiler l'exécutable
+        run: cargo build --release --locked
+
+      # A single file is the whole point. This checks it is one, that it runs,
+      # and that MCP mode still works in the GUI-subsystem release build — the
+      # one configuration the Rust tests, which run in debug, never see.
+      - name: Vérifier l'exécutable
+        shell: pwsh
+        run: ./scripts/verify-windows-exe.ps1
 
       - uses: actions/upload-artifact@v7
         with:
-          name: SafeInvest-win-x64
-          path: artifacts/
+          name: safe-invest-windows-x64
+          path: target/release/safe-invest.exe
+          if-no-files-found: error
           retention-days: 14

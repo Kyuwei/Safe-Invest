@@ -1,0 +1,79 @@
+# Dependency policy, enforced in CI by `cargo deny check`.
+#
+# The point is not to have zero findings; it is that every finding is a
+# decision someone wrote down.
+
+[graph]
+# The two targets that actually ship or get tested. Anything reachable only
+# from another platform is not this project's risk.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# A real vulnerability fails the build. Full stop.
+yanked = "deny"
+
+ignore = [
+    # ---- GTK 3 bindings: Linux only. -------------------------------------
+    # Tauri draws through WebKitGTK on Linux, and the gtk-rs GTK3 bindings are
+    # in maintenance. None of these crates exist in the Windows dependency
+    # graph — verified with `cargo tree --target x86_64-pc-windows-msvc` — so
+    # they cannot reach the executable that is shipped. They are accepted for
+    # the Linux CI build only, and they are advisories of kind "unmaintained"
+    # and "unsound", not vulnerabilities.
+    { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0412", reason = "gdk — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0413", reason = "atk — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0416", reason = "atk-sys — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0418", reason = "gdk-sys — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk3-macros — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk-sys — GTK3 bindings, Linux build only" },
+    { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsoundness — Linux build only, and Safe Invest never constructs one" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error — build-time only, via glib-macros, Linux build only" },
+
+    # ---- Unicode tables reached through Tauri. ---------------------------
+    # `urlpattern`, inside `tauri-utils`, still uses the unic-* crates. They
+    # are unmaintained character-property tables, not a vulnerability, and
+    # they are exercised at configuration-parsing time rather than on any path
+    # that touches market data or a save file. Tracked upstream in Tauri;
+    # remove these lines when it moves off urlpattern.
+    { id = "RUSTSEC-2025-0075", reason = "unic-char-range via tauri-utils/urlpattern — unmaintained, no known vulnerability" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-common via tauri-utils/urlpattern — unmaintained, no known vulnerability" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-char-property via tauri-utils/urlpattern — unmaintained, no known vulnerability" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version via tauri-utils/urlpattern — unmaintained, no known vulnerability" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident via tauri-utils/urlpattern — unmaintained, no known vulnerability" },
+]
+
+[licenses]
+# Permissive licences plus MPL-2.0, which is file-level copyleft and fine for
+# a binary that does not modify the file.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Nothing in this project needs to shell out or read arbitrary paths from the
+# page, so a dependency that suddenly could is worth noticing.
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,66 +1,78 @@
-# Sources de données et clés API
+# Sources de cours et clés
 
-Safe Invest affiche de **vrais cours**. Il fonctionne sans aucune inscription ; ajouter
-une clé gratuite améliore surtout les limites d'appel.
+**Safe Invest fonctionne entièrement sans aucune clé.** Cette page n'est utile que si
+vous voulez plus de requêtes par minute ou une source supplémentaire.
 
-## Sans rien faire
+## Ce qui se passe sans rien configurer
 
-| Source | Actifs | Limite |
+| Type d'actif | Source | Quota |
 |---|---|---|
-| **CoinGecko** (API publique sans clé) | cryptos | ~5 à 15 appels/minute |
-| **Yahoo Finance** (endpoint `v8/chart`) | actions, ETF | souple, non documenté |
-| **Frankfurter** (taux BCE) | conversion USD → EUR | aucune limite pratique |
+| Cryptomonnaies | CoinGecko, palier public | environ 5 à 15 requêtes par minute |
+| Actions et ETF | Yahoo Finance | non documenté, généreux |
+| Conversion de devises | Frankfurter (taux BCE) | aucun |
 
-C'est la configuration par défaut : l'application est utilisable dès le premier
-lancement.
+Si une source ne répond pas, la suivante prend le relais : CoinMarketCap ou Finnhub si
+une clé est saisie, puis la lecture de pages web publiques, puis le marché simulé.
 
-## Avec une clé gratuite
+## La cascade, en entier
+
+**Cryptomonnaies** — CoinGecko → CoinMarketCap → lecture de page → simulé
+**Actions et ETF** — Yahoo Finance → Finnhub → lecture de page → simulé
+
+L'ordre se modifie dans le fichier de réglages ; le simulateur est toujours ajouté en
+dernier, même si on l'enlève, pour que l'application ne reste jamais muette.
+
+## Ajouter une clé
+
+Dans **Réglages → Clés d'API**. Une clé est chiffrée avec DPAPI sous votre compte
+Windows et **n'est jamais réaffichée** : la case reste vide, avec la mention
+« enregistrée ». Pour la retirer, enregistrez une valeur vide.
+
+### Les clés possibles
 
 | Source | Où l'obtenir | Ce que ça apporte |
 |---|---|---|
-| **CoinGecko Demo** | coingecko.com → Developer Dashboard | 100 appels/minute au lieu de ~5 |
-| **CoinMarketCap Basic** | coinmarketcap.com/api | 15 000 crédits/mois, source crypto alternative |
-| **Finnhub** | finnhub.io | 60 appels/minute sur les actions américaines |
+| CoinGecko Demo | [coingecko.com/api/pricing](https://www.coingecko.com/en/api/pricing) | environ 30 requêtes par minute au lieu de 5 |
+| CoinMarketCap | [coinmarketcap.com/api](https://coinmarketcap.com/api/) | ~15 000 crédits par mois, source crypto de secours |
+| Finnhub | [finnhub.io/register](https://finnhub.io/register) | 60 requêtes par minute sur les valeurs américaines |
 
-Les clés se saisissent dans **Réglages → Sources de données**. Elles sont chiffrées avec
-DPAPI (liées à votre compte Windows) dans `%LOCALAPPDATA%\SafeInvest\settings.json`.
+Toutes sont gratuites et demandent une inscription par courriel.
 
-Pour le serveur MCP lancé depuis un terminal, les variables d'environnement
-`SAFEINVEST_COINGECKO_KEY`, `SAFEINVEST_COINMARKETCAP_KEY` et `SAFEINVEST_FINNHUB_KEY`
-prennent le relais si aucune clé n'est enregistrée.
+## Par variable d'environnement
 
-## L'ordre des sources
-
-Chaque famille d'actifs a sa cascade, modifiable dans les Réglages :
+Pratique pour une machine de test ou un serveur d'intégration, où l'on ne veut rien
+écrire sur le disque :
 
 ```
-Cryptos : coingecko → coinmarketcap → repli web → simulé
-Actions : yahoo     → finnhub       → repli web → simulé
+SAFEINVEST_COINGECKO_KEY
+SAFEINVEST_COINMARKETCAP_KEY
+SAFEINVEST_FINNHUB_KEY
 ```
 
-À chaque échec — panne, quota épuisé, page qui a changé — on passe au suivant.
+Une clé enregistrée dans les réglages a la priorité. La variable n'est consultée que si
+rien n'est stocké — une variable d'environnement ne peut donc pas éclipser en silence la
+clé que vous avez saisie.
 
-### Le repli web
+## Le marché simulé
 
-Quand toutes les API sont indisponibles, Safe Invest lit le cours directement sur une page
-publique (CoinMarketCap pour les cryptos, stockanalysis.com pour les actions). C'est un
-**filet de sécurité**, pas une source de référence : la mise en page de ces sites peut
-changer du jour au lendemain. Les sélecteurs sont regroupés dans
-`src/SafeInvest.MarketData/Providers/WebScrapeProvider.cs` pour qu'une réparation tienne
-en une ligne.
+Quand aucune source ne répond, l'application invente des cours : une marche déterministe
+ancrée sur des ordres de grandeur réalistes, pour qu'un bitcoin simulé coûte 68 000 € et
+non 16 €.
 
-### Le mode simulé
+**Ces cours sont signalés partout** : bandeau sur le tableau de bord, mention sur chaque
+position, note sur l'opération dans l'historique, drapeau `isSimulated` dans les réponses
+MCP.
 
-Dernier recours, et aussi un mode qu'on peut activer volontairement (Réglages → Mode
-simulé) pour une démonstration sans réseau. Les cours sont générés localement, de façon
-déterministe : le même actif à la même minute vaut la même chose sur toutes les machines,
-ce qui permet à une classe entière de voir les mêmes chiffres.
+Pour y jouer volontairement — apprendre hors ligne, faire une démonstration — cochez
+**Mode démonstration** dans les réglages, ou lancez `safe-invest.exe --demo`.
 
-**Ces cours sont clairement signalés** — badge dans l'interface, `isSimulated: true` côté
-MCP, mention sur l'opération dans l'historique. Un outil pédagogique ne doit jamais
-laisser croire qu'un chiffre inventé est un vrai prix de marché.
+## Ce que valent ces sources
 
-## Diagnostiquer
+Les points d'accès de Yahoo Finance et la lecture de pages publiques ne sont **pas des
+API officielles**. Ils peuvent changer sans préavis. C'est précisément pourquoi il y a
+une cascade et un simulateur derrière — et pourquoi **Réglages → Sources de cours**
+affiche un voyant par source, avec la raison du dernier échec.
 
-- Dans l'application : **Réglages → Sources de données** affiche l'état de chaque source.
-- Via MCP : l'outil `get_market_sources` renvoie la même information.
+Aucune de ces sources n'est un flux de marché professionnel. Les cours sont réels, mais
+retardés et arrondis. Cela suffit largement pour apprendre ; cela ne suffirait pour rien
+d'autre.

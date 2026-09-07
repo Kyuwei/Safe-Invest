@@ -1,0 +1,28 @@
+[package]
+name = "safe-invest-platform"
+description = "The operating-system glue: every `unsafe` line in Safe Invest lives here."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+# The only dependency, and only on Windows. Keeping this crate free of anything
+# heavier is what lets `cargo check --target x86_64-pc-windows-msvc` run from a
+# Linux machine: everything else in the workspace pulls in `ring`, whose build
+# script cannot cross-compile to MSVC.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+] }
