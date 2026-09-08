@@ -64,6 +64,8 @@ export const api = {
   saveSettings: (settings) => call("save_settings", { settings }),
   setApiKey: (providerId, key) => call("set_api_key", { providerId, key }),
   marketSources: () => call("market_sources"),
+  mcpAccess: () => call("mcp_access"),
+  regenerateMcpToken: () => call("regenerate_mcp_token"),
   openDataDir: () => call("open_data_dir"),
 };
 

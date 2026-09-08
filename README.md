@@ -68,9 +68,10 @@ mêmes contrôles, parce qu'il n'existe qu'un seul chemin vers le moteur.
 Un seul fichier fait les deux :
 
 ```
-safe-invest.exe          ouvre la fenêtre
-safe-invest.exe mcp      parle le protocole MCP sur l'entrée et la sortie standard
-safe-invest.exe doctor   affiche un diagnostic
+safe-invest.exe             ouvre la fenêtre
+safe-invest.exe mcp         parle le protocole MCP sur l'entrée et la sortie standard
+safe-invest.exe mcp --http  sert le même MCP sur 127.0.0.1:9800
+safe-invest.exe doctor      affiche un diagnostic
 ```
 
 Les deux modes lisent et écrivent le même dossier de parties. L'application le surveille :
@@ -112,6 +113,10 @@ Dans la configuration de votre client MCP :
 
 Le serveur expose quatorze outils : créer une partie, chercher un actif, lire les cours et
 l'historique, acheter, vendre, suivre l'objectif.
+
+Si votre client préfère une adresse à un chemin d'exécutable, les Paramètres ouvrent le
+même serveur sur un port de bouclage — `http://127.0.0.1:9800/mcp` par défaut, derrière un
+jeton, refusé à toute origine qui n'est pas la machine elle-même.
 
 En partie IA, `buy` et `sell` **refusent** un ordre sans justification. C'est délibéré :
 tout l'intérêt du mode IA tient à ce que l'historique se lise comme une suite de décisions

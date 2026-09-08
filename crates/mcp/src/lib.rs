@@ -5,6 +5,8 @@
 //! here, which is the point — an AI cannot be given a rule a person does not
 //! also play by.
 
+pub mod guard;
+pub mod http;
 pub mod params;
 pub mod server;
 

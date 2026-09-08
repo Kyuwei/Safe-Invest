@@ -24,6 +24,8 @@ mod cli;
 mod commands;
 #[cfg(feature = "gui")]
 mod gui;
+#[cfg(feature = "gui")]
+mod mcp_port;
 
 use cli::{Command, Options, errln, outln};
 
@@ -78,7 +80,30 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
                 .build()?;
             runtime.block_on(async {
                 let context = cli::build_context(options)?;
-                safe_invest_mcp::serve_stdio(context).await
+
+                if !options.http {
+                    return safe_invest_mcp::serve_stdio(context).await;
+                }
+
+                // A port needs a token, and the port needs saying out loud:
+                // whoever ran this has to know where to point their client and
+                // what to send with it. Both go to stderr, which is where
+                // everything but the protocol goes in this mode.
+                let settings = context.settings_service();
+                let token = settings.ensure_mcp_token()?;
+                let port = options.port.unwrap_or(settings.load().mcp_http_port);
+
+                let listener = safe_invest_mcp::http::bind(port).await.map_err(|error| {
+                    anyhow::anyhow!(
+                        "impossible d'écouter sur 127.0.0.1:{port} : {error}. \
+                         Un autre programme utilise peut-être ce port ; essayez --port."
+                    )
+                })?;
+
+                errln!("Serveur MCP sur http://127.0.0.1:{port}/mcp");
+                errln!("Authorization: Bearer {token}");
+                safe_invest_mcp::http::serve(listener, context, token).await;
+                Ok(())
             })
         }
         Command::Window => run_window(options),

@@ -182,8 +182,19 @@ le signal le plus important qui devient illisible.
 
 **Accès IA — serveur MCP** — le bloc de configuration à coller dans votre client, déjà
 rempli avec le chemin de *votre* exécutable, et la liste des outils qu'une IA se verra
-confier. Le serveur parle par l'entrée et la sortie standard : il n'ouvre aucun port, donc
-il n'y a ni adresse à exposer ni jeton à protéger.
+confier. Par défaut le serveur parle par l'entrée et la sortie standard : votre client
+lance l'exécutable lui-même, aucun port n'est ouvert.
+
+Si votre client préfère une adresse à un chemin, cochez **« Écouter aussi sur un port
+local »**. Le port par défaut est 9800 ; changez-le dans le champ à côté puis
+« Appliquer ». Le bloc de configuration se met à jour tout seul et contient alors
+l'adresse et le jeton d'accès.
+
+Ce port n'écoute que sur `127.0.0.1` — votre machine et rien d'autre — et exige le jeton
+à chaque requête. Le jeton est chiffré avec votre compte Windows, comme les clés API. Il
+est visible dans le bloc de configuration, donc traitez-le comme un mot de passe : si
+vous l'avez collé quelque part par erreur, « Régénérer le jeton » invalide l'ancien sur
+l'instant. Le port se referme dès que la fenêtre se ferme.
 
 **Ouvrir le dossier des parties** — le dossier des sauvegardes. C'est le même que lit le
 serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtre affiche.

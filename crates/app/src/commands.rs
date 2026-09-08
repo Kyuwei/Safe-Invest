@@ -30,6 +30,17 @@ pub struct CommandError {
     pub hint: Option<String>,
 }
 
+impl From<safe_invest_core::settings::SettingsError> for CommandError {
+    fn from(error: safe_invest_core::settings::SettingsError) -> Self {
+        Self {
+            message: error.to_string(),
+            hint: Some(
+                "Vérifiez que le dossier des réglages est accessible en écriture.".to_owned(),
+            ),
+        }
+    }
+}
+
 impl From<ServiceError> for CommandError {
     fn from(error: ServiceError) -> Self {
         Self {
@@ -503,11 +514,61 @@ pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
 #[tauri::command]
 pub async fn save_settings(
     context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
     settings: AppSettings,
-) -> Answer<()> {
+) -> Answer<crate::mcp_port::PortStatus> {
     context.save_settings(&settings)?;
     context.reload_market().await?;
-    Ok(())
+    // The port follows the setting immediately: a toggle that only takes
+    // effect at the next launch is a toggle nobody trusts.
+    Ok(port.reconcile(&context).await)
+}
+
+/// What the MCP port is doing, and everything a client needs to reach it.
+///
+/// The token is returned here — unlike an API key, which is somebody else's
+/// secret and is never read back. This one is ours, it is useless anywhere but
+/// this machine, and a person cannot configure a client without seeing it.
+#[tauri::command]
+pub fn mcp_access(
+    context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
+) -> McpAccess {
+    let settings = context.stored_settings();
+    McpAccess {
+        status: port.status(),
+        enabled: settings.mcp_http_enabled,
+        configured_port: settings.mcp_http_port,
+        token: context.settings_service().mcp_token(&settings),
+        exe_path: std::env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAccess {
+    pub status: crate::mcp_port::PortStatus,
+    pub enabled: bool,
+    pub configured_port: u16,
+    /// Absent until the server has been switched on once.
+    pub token: Option<String>,
+    pub exe_path: Option<String>,
+}
+
+/// Mints a new token, which immediately locks out anything holding the old one.
+#[tauri::command]
+pub async fn regenerate_mcp_token(
+    context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
+) -> Answer<String> {
+    let token = context.settings_service().regenerate_mcp_token()?;
+    // The running server still holds the old token in memory, so it has to be
+    // restarted or the new one would not work until the next launch.
+    port.stop_for_restart();
+    port.reconcile(&context).await;
+    Ok(token)
 }
 
 /// Stores an API key. There is deliberately no command to read one back:

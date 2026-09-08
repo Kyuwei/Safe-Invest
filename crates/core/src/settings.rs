@@ -6,6 +6,16 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// The loopback port the MCP server listens on when nothing else is asked for.
+///
+/// A TCP port is sixteen bits, so 65 535 is the ceiling — 98 000 cannot be
+/// expressed at all. This is the nearest thing that fits, clear of the
+/// registered range and of what local tooling usually grabs.
+pub const DEFAULT_MCP_PORT: u16 = 9800;
+
+/// Below this, ports are reserved and need privileges on Unix.
+pub const MIN_MCP_PORT: u16 = 1024;
+
 /// Defaults chosen so the app is fully usable with no key and no configuration:
 /// keyless sources first, the simulator last, fees off.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +35,17 @@ pub struct AppSettings {
     /// Blue/orange instead of green/red.
     pub colour_blind_palette: bool,
     pub theme: String,
+
+    /// Serve MCP on a loopback port as well as on stdin/stdout.
+    ///
+    /// Off until somebody turns it on. Opening a port is a decision about a
+    /// machine, and not one a program should make for a person at first launch.
+    pub mcp_http_enabled: bool,
+    pub mcp_http_port: u16,
+    /// The sealed bearer token for that port. Written the first time the server
+    /// is switched on, and never stored in the clear on Windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_mcp_token: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -51,6 +72,9 @@ impl Default for AppSettings {
             force_simulated_mode: false,
             colour_blind_palette: false,
             theme: "system".into(),
+            mcp_http_enabled: false,
+            mcp_http_port: DEFAULT_MCP_PORT,
+            protected_mcp_token: None,
         }
     }
 }
@@ -128,6 +152,46 @@ impl SettingsService {
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
     }
+
+    /// The bearer token for the MCP port, minting one the first time it is needed.
+    ///
+    /// Two version-4 UUIDs, hex, no dashes. That is 244 bits from the same
+    /// system entropy source a key would come from — enough that guessing is
+    /// not a strategy — and it costs no dependency the program did not already
+    /// have.
+    pub fn ensure_mcp_token(&self) -> Result<String, SettingsError> {
+        let settings = self.load();
+        if let Some(token) = self.mcp_token(&settings) {
+            return Ok(token);
+        }
+        self.regenerate_mcp_token()
+    }
+
+    /// Mints a new token, invalidating the old one.
+    pub fn regenerate_mcp_token(&self) -> Result<String, SettingsError> {
+        let token = format!(
+            "{:032x}{:032x}",
+            uuid::Uuid::new_v4().as_u128(),
+            uuid::Uuid::new_v4().as_u128()
+        );
+        let mut settings = self.load();
+        settings.protected_mcp_token = Some(secret::seal(&token)?.as_str().to_owned());
+        self.save(&settings)?;
+        Ok(token)
+    }
+
+    /// The stored token, or `None` when none has been minted or it cannot be
+    /// unsealed — a token that will not open the lock is not a token.
+    pub fn mcp_token(&self, settings: &AppSettings) -> Option<String> {
+        let stored = settings.protected_mcp_token.as_ref()?;
+        match secret::unseal(&Sealed::from_stored(stored.clone())) {
+            Ok(token) => Some(token),
+            Err(error) => {
+                tracing::warn!(%error, "jeton MCP illisible, il sera régénéré");
+                None
+            }
+        }
+    }
 }
 
 /// `coinmarketcap` → `SAFEINVEST_COINMARKETCAP_KEY`.
@@ -197,5 +261,62 @@ mod tests {
         paths.ensure_created().unwrap();
         std::fs::write(paths.settings_file(), b"{ not json").unwrap();
         assert_eq!(SettingsService::new(paths).load(), AppSettings::default());
+    }
+
+    #[test]
+    fn the_mcp_token_is_minted_once_and_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new(Paths::at(dir.path()));
+
+        let first = service.ensure_mcp_token().unwrap();
+        assert_eq!(first.len(), 64, "244 bits en hexadécimal");
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Asking again must return the same token: a client that stored it
+        // yesterday has to still get in today.
+        assert_eq!(service.ensure_mcp_token().unwrap(), first);
+    }
+
+    #[test]
+    fn regenerating_the_token_invalidates_the_previous_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new(Paths::at(dir.path()));
+
+        let first = service.ensure_mcp_token().unwrap();
+        let second = service.regenerate_mcp_token().unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(service.ensure_mcp_token().unwrap(), second);
+    }
+
+    #[test]
+    fn the_token_is_never_written_in_the_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::at(dir.path());
+        let service = SettingsService::new(paths.clone());
+
+        let token = service.ensure_mcp_token().unwrap();
+        let on_disk = std::fs::read_to_string(paths.settings_file()).unwrap();
+
+        assert!(
+            !on_disk.contains(&token),
+            "le jeton est en clair dans le fichier"
+        );
+    }
+
+    /// A settings file written before this feature existed has no port and no
+    /// token, and must still load — with the port defaulted, not zero.
+    #[test]
+    fn an_older_settings_file_gains_the_default_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::at(dir.path());
+        paths.ensure_created().unwrap();
+        std::fs::write(paths.settings_file(), br#"{"defaultCurrency":"USD"}"#).unwrap();
+
+        let settings = SettingsService::new(paths).load();
+        assert_eq!(settings.default_currency, "USD");
+        assert_eq!(settings.mcp_http_port, DEFAULT_MCP_PORT);
+        assert!(!settings.mcp_http_enabled);
+        assert!(settings.protected_mcp_token.is_none());
     }
 }

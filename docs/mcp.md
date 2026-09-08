@@ -28,6 +28,58 @@ Deux options utiles :
 
 Par exemple, `"args": ["mcp", "--demo"]`.
 
+## Par une adresse plutôt qu'un chemin
+
+Certains clients ne savent pas lancer un exécutable, ou refusent un chemin Windows.
+Pour eux, le serveur sait aussi écouter sur un port.
+
+Dans la fenêtre, **Paramètres → Serveur MCP**, cochez « Écouter aussi sur un port
+local ». Le port par défaut est **9800** ; il se change dans le champ à côté, puis
+« Appliquer ». L'écran affiche alors la configuration à coller, jeton compris :
+
+```json
+{
+  "mcpServers": {
+    "safe-invest": {
+      "url": "http://127.0.0.1:9800/mcp",
+      "headers": {
+        "Authorization": "Bearer <le jeton affiché dans les Paramètres>"
+      }
+    }
+  }
+}
+```
+
+Sans la fenêtre, la même chose en ligne de commande :
+
+```
+safe-invest.exe mcp --http            # port des réglages, 9800 par défaut
+safe-invest.exe mcp --http --port 9810
+```
+
+Le port n'est ouvert que tant que la fenêtre — ou cette commande — tourne. Le mode
+stdio reste disponible en parallèle, et sert exactement les mêmes quatorze outils.
+
+> Un port est un nombre de seize bits : **1024 à 65535**. 98 000 n'en est pas un, et
+> l'application le dit plutôt que de le tronquer.
+
+### Ce qui garde ce port fermé aux autres
+
+Quatre verrous indépendants, chacun suffisant à lui seul :
+
+| Verrou | Ce qu'il arrête |
+|---|---|
+| Écoute sur `127.0.0.1` uniquement | Rien depuis le réseau ne peut ouvrir la connexion |
+| Jeton `Authorization: Bearer …` | Un autre programme de la machine qui tenterait sa chance |
+| `Host` limité à `localhost` / `127.0.0.1` | Le réattachement DNS, où `evil.example` pointe sur votre machine |
+| `Origin` limitée au bouclage | Une page web qui poste chez vous sans jamais lire la réponse |
+
+Aucune réponse ne porte d'en-tête CORS, jamais : un navigateur à qui l'on n'accorde
+rien ne peut rien lire. Le jeton est stocké chiffré (DPAPI sous Windows), il n'apparaît
+ni dans les journaux ni dans le diagnostic, et « Régénérer le jeton » invalide
+immédiatement l'ancien — c'est ce qu'il faut faire si vous l'avez collé quelque part
+par erreur.
+
 ## Vérifier que ça marche
 
 ```

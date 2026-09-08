@@ -5,6 +5,7 @@
 //! shipped binary should earn its place.
 
 use anyhow::Context as _;
+use safe_invest_core::settings::MIN_MCP_PORT as MIN_PORT;
 use safe_invest_service::{Context, ContextConfig};
 use std::path::PathBuf;
 
@@ -38,6 +39,7 @@ Safe Invest — simulateur d'investissement pédagogique.
 UTILISATION
     safe-invest [OPTIONS]              Ouvre la fenêtre
     safe-invest mcp [OPTIONS]          Démarre le serveur MCP (stdin/stdout)
+    safe-invest mcp --http [--port N]  Démarre le serveur MCP sur 127.0.0.1
     safe-invest doctor [OPTIONS]       Vérifie l'installation et affiche un diagnostic
     safe-invest --version
     safe-invest --help
@@ -46,6 +48,9 @@ OPTIONS
     --data-dir <CHEMIN>   Dossier des parties et des réglages
                           (par défaut : %LOCALAPPDATA%\\SafeInvest)
     --demo                Force le marché simulé : aucun appel réseau
+    --http                Sert le MCP sur un port de bouclage au lieu de stdio
+    --port <PORT>         Port d'écoute (implique --http ; 9800 par défaut).
+                          L'écoute est toujours limitée à 127.0.0.1.
     -h, --help            Affiche cette aide
     -V, --version         Affiche la version
 
@@ -57,7 +62,9 @@ VARIABLES D'ENVIRONNEMENT
                                 SAFEINVEST_COINMARKETCAP_KEY
 
 Pour brancher une IA, ajoutez à votre client MCP :
-    { \"command\": \"safe-invest\", \"args\": [\"mcp\"] }";
+    { \"command\": \"safe-invest\", \"args\": [\"mcp\"] }
+ou, en mode port, pointez le client sur http://127.0.0.1:9800/mcp avec
+l'en-tête « Authorization: Bearer … » que les Paramètres affichent.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -72,6 +79,10 @@ pub enum Command {
 pub struct Options {
     pub data_dir: Option<PathBuf>,
     pub demo: bool,
+    /// `mcp --http` — serve on a loopback port instead of stdin/stdout.
+    pub http: bool,
+    /// The port for that, when `--port` was given. `None` uses the setting.
+    pub port: Option<u16>,
 }
 
 /// Reads the command line. Returns the message to print on a bad invocation
@@ -92,6 +103,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<(Command, Options
             "-h" | "--help" => return Ok((Command::Help, options)),
             "-V" | "--version" => return Ok((Command::Version, options)),
             "--demo" => options.demo = true,
+            "--http" => options.http = true,
+            "--port" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--port attend un numéro de port.".to_owned())?;
+                options.port = Some(parse_port(&value)?);
+                options.http = true;
+            }
             "--data-dir" => {
                 let path = args
                     .next()
@@ -108,6 +127,28 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<(Command, Options
     }
 
     Ok((command.unwrap_or(Command::Window), options))
+}
+
+/// Reads a port, refusing the two mistakes that are easy to make.
+///
+/// A TCP port is sixteen bits. "98000" is not a large port, it is not a port,
+/// and the error says so rather than wrapping it into something that happens to
+/// fit.
+fn parse_port(value: &str) -> Result<u16, String> {
+    let trimmed = value.trim();
+    let port: u32 = trimmed
+        .parse()
+        .map_err(|_| format!("Port invalide : « {trimmed} »."))?;
+
+    let port = u16::try_from(port)
+        .map_err(|_| format!("Port hors limites : {port}. Un port va de {MIN_PORT} à 65535."))?;
+
+    if port < MIN_PORT {
+        return Err(format!(
+            "Port réservé : {port}. Choisissez un port entre {MIN_PORT} et 65535."
+        ));
+    }
+    Ok(port)
 }
 
 pub fn build_context(options: &Options) -> anyhow::Result<Context> {
@@ -215,6 +256,28 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
         }
     );
 
+    outln!();
+    outln!("Serveur MCP");
+    outln!("  stdio          : toujours disponible (`safe-invest mcp`)");
+    outln!(
+        "  port local     : {}",
+        if settings.mcp_http_enabled {
+            format!("activé sur 127.0.0.1:{}", settings.mcp_http_port)
+        } else {
+            "désactivé".to_owned()
+        }
+    );
+    // Whether a token exists, never the token. A diagnostic gets pasted into
+    // bug reports, and this one is a credential like any other.
+    outln!(
+        "  jeton          : {}",
+        if context.settings_service().mcp_token(&settings).is_some() {
+            "défini"
+        } else {
+            "aucun (créé au premier démarrage du port)"
+        }
+    );
+
     Ok(())
 }
 
@@ -317,5 +380,50 @@ mod tests {
     fn the_usage_text_shows_how_to_wire_an_ai_client() {
         assert!(USAGE.contains("\"command\": \"safe-invest\""));
         assert!(USAGE.contains("\"args\": [\"mcp\"]"));
+    }
+
+    /// The number this feature was asked for. It is not a port, and the error
+    /// must say that rather than truncating it into one that happens to fit.
+    #[test]
+    fn a_number_too_large_for_a_port_is_refused_by_name() {
+        let error = parse_port("98000").unwrap_err();
+        assert!(error.contains("98000"), "{error}");
+        assert!(error.contains("65535"), "{error}");
+    }
+
+    #[test]
+    fn reserved_and_nonsense_ports_are_refused() {
+        assert!(parse_port("0").is_err());
+        assert!(parse_port("80").is_err());
+        assert!(parse_port("1023").is_err());
+        assert!(parse_port("").is_err());
+        assert!(parse_port("neuf-mille").is_err());
+        assert!(parse_port("-1").is_err());
+    }
+
+    #[test]
+    fn a_usable_port_is_accepted_with_or_without_spaces() {
+        assert_eq!(parse_port("9800"), Ok(9800));
+        assert_eq!(parse_port("  1024 "), Ok(1024));
+        assert_eq!(parse_port("65535"), Ok(65535));
+    }
+
+    #[test]
+    fn asking_for_a_port_implies_serving_on_one() {
+        let (command, options) =
+            parse(["mcp".to_owned(), "--port".to_owned(), "1234".to_owned()]).unwrap();
+        assert_eq!(command, Command::Mcp);
+        assert!(options.http, "--port doit impliquer --http");
+        assert_eq!(options.port, Some(1234));
+    }
+
+    #[test]
+    fn stdio_stays_the_default_for_the_mcp_subcommand() {
+        let (command, options) = parse(["mcp".to_owned()]).unwrap();
+        assert_eq!(command, Command::Mcp);
+        assert!(
+            !options.http,
+            "un port ne s'ouvre pas sans qu'on le demande"
+        );
     }
 }
