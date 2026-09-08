@@ -1314,4 +1314,17 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
 .mcp-status { flex: 0 0 100%; margin: 0; font-size: 0.8rem; color: var(--text-soft); }
 .mcp-status.is-listening { color: var(--up-ink); font-weight: 600; }
 .mcp-status.is-broken { color: var(--down-ink); font-weight: 600; text-wrap: pretty; }
-.mcp-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.mcp-actions, .button-row { display: flex; flex-wrap: wrap; gap: 9px; }
+
+/* ----------------------------------------------------------- journal */
+
+/* Tall enough to show a stack trace's worth of context, short enough that the
+   panel below it stays reachable without scrolling past a megabyte. */
+.log-view {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

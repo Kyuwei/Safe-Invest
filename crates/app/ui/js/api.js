@@ -67,6 +67,9 @@ export const api = {
   mcpAccess: () => call("mcp_access"),
   regenerateMcpToken: () => call("regenerate_mcp_token"),
   openDataDir: () => call("open_data_dir"),
+  readJournal: (lines) => call("read_journal", { lines }),
+  exportJournal: () => call("export_journal"),
+  logUiError: (message) => call("log_ui_error", { message }),
 };
 
 /**

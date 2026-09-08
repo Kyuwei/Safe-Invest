@@ -71,7 +71,25 @@ export function toast(message, kind = "info", hint = null) {
   toastTimer = setTimeout(() => node.remove(), kind === "error" ? 7000 : 3500);
 }
 
+let errorSink = null;
+
+/**
+ * Registers something to be told about every reported error.
+ *
+ * The journal uses it. A toast lasts seven seconds and is gone; the person who
+ * reports the bug an hour later needs the same sentence written down.
+ */
+export function onError(handler) {
+  errorSink = handler;
+}
+
 /** Shows an error the way the user should see it: plainly, with the hint. */
 export function reportError(error) {
-  toast(error?.message ?? String(error), "error", error?.hint ?? null);
+  const message = error?.message ?? String(error);
+  toast(message, "error", error?.hint ?? null);
+  try {
+    errorSink?.(message);
+  } catch {
+    // Recording a failure must never be able to cause one.
+  }
 }

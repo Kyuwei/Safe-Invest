@@ -433,6 +433,33 @@
                     Un intervalle court épuise plus vite les quotas gratuits.
                   </p>
                 </section>
+
+                <h2 class="section-title">Diagnostic</h2>
+
+                <section class="panel">
+                  <h2>Journal</h2>
+                  <p class="field-note">
+                    Ce que le programme a fait, et ce qui a échoué. Aucune clé d'API ni
+                    jeton MCP n'y figure&nbsp;: ils sont remplacés avant l'écriture.
+                  </p>
+                  <pre class="code-block log-view" id="journal-view">—</pre>
+                  <p class="field-note" id="journal-meta"></p>
+                  <div class="button-row">
+                    <button class="ghost" type="button" id="btn-journal-refresh">
+                      Rafraîchir
+                    </button>
+                    <button class="ghost" type="button" id="btn-journal-copy">
+                      Copier
+                    </button>
+                    <button class="ghost" type="button" id="btn-journal-export">
+                      Exporter le journal
+                    </button>
+                  </div>
+                  <p class="field-note">
+                    L'export écrit un fichier texte sur le Bureau — ou dans le dossier
+                    des parties s'il n'y en a pas — à joindre à un signalement.
+                  </p>
+                </section>
               </div>
 
               <div class="settings-col">

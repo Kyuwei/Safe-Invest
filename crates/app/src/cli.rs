@@ -5,6 +5,7 @@
 //! shipped binary should earn its place.
 
 use anyhow::Context as _;
+use safe_invest_core::journal;
 use safe_invest_core::settings::MIN_MCP_PORT as MIN_PORT;
 use safe_invest_service::{Context, ContextConfig};
 use std::path::PathBuf;
@@ -159,21 +160,77 @@ pub fn build_context(options: &Options) -> anyhow::Result<Context> {
     .context("impossible de préparer le dossier de données")
 }
 
-/// Sets up logging. `stderr_only` is what MCP mode needs — stdout is the
-/// transport there, and a log line on it corrupts the protocol stream.
-pub fn init_logging(stderr_only: bool) {
+/// Where the program is writing its files, before a `Context` exists.
+///
+/// Logging is set up first — a failure while building the context is exactly
+/// the kind of thing the journal is for — so it resolves the directory the
+/// same way `Context` will, rather than waiting for it.
+pub fn paths_for(options: &Options) -> safe_invest_core::Paths {
+    options.data_dir.clone().map_or_else(
+        safe_invest_core::Paths::discover,
+        safe_invest_core::Paths::at,
+    )
+}
+
+/// Sends every log line to the console and to the journal at once.
+///
+/// Two sinks, because they answer different questions. The console is for
+/// whoever is watching right now; the journal is for the person who noticed an
+/// hour later and has nothing but a window that misbehaved.
+///
+/// The console half is always standard error. In MCP mode standard output
+/// carries the protocol and one stray line on it makes the client stop
+/// answering; in `doctor` it carries a report people paste into bug reports.
+/// Neither wants log lines mixed in.
+struct Sink {
+    journal: Option<journal::Handle>,
+}
+
+impl std::io::Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(journal) = self.journal.as_mut() {
+            let _ = journal.write(buf);
+        }
+        // Best-effort on purpose: a windowed build has no console attached, and
+        // that must not cost the journal its line.
+        let _ = std::io::stderr().write_all(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(journal) = self.journal.as_mut() {
+            let _ = journal.flush();
+        }
+        Ok(())
+    }
+}
+
+/// Sets up logging: standard error for whoever is watching, and the journal
+/// under the data directory for everyone else.
+pub fn init_logging(options: &Options) {
     use tracing_subscriber::EnvFilter;
 
     let filter = EnvFilter::try_from_env("SAFEINVEST_LOG")
         .unwrap_or_else(|_| EnvFilter::new("safe_invest=info,warn"));
 
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    let installed = if stderr_only {
-        builder.with_writer(std::io::stderr).try_init()
-    } else {
-        builder.try_init()
-    };
-    let _ = installed;
+    // A journal that cannot be opened — a read-only disk, a directory taken by
+    // a file — is a diagnostic lost, never a launch refused.
+    let journal = journal::Handle::open(&paths_for(options)).ok();
+    if journal.is_none() {
+        errln!("Journal indisponible : les messages n'iront qu'à la console.");
+    }
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        // No ANSI: the journal is read as a text file, and escape codes turn it
+        // into something nobody can quote in a bug report.
+        .with_ansi(false)
+        .with_writer(move || Sink {
+            journal: journal.clone(),
+        })
+        .try_init();
+
+    tracing::info!(version = safe_invest_core::VERSION, "Safe Invest démarre");
 }
 
 /// Reattaches the process to the terminal that launched it.
@@ -278,7 +335,24 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
         }
     );
 
+    outln!();
+    outln!("Journal");
+    outln!("  fichier        : {}", journal::file(paths).display());
+    outln!("  taille         : {}", human_size(journal::size(paths)));
+    outln!("  lignes gardées : {}", journal::tail(paths, 100_000).len());
+
     Ok(())
+}
+
+/// Bytes, said the way a person reads them.
+fn human_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} o")
+    } else if bytes < 1024 * 1024 {
+        format!("{} ko", bytes / 1024)
+    } else {
+        format!("{} Mo", bytes / (1024 * 1024))
+    }
 }
 
 fn executable_path() -> String {

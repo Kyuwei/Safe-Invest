@@ -64,13 +64,11 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
         }
         Command::Doctor => {
             cli::attach_console();
-            cli::init_logging(false);
+            cli::init_logging(options);
             cli::doctor(options)
         }
         Command::Mcp => {
-            // Logs go to stderr and only to stderr: stdout carries the protocol,
-            // and one stray line on it makes the client stop answering.
-            cli::init_logging(true);
+            cli::init_logging(options);
             // Two workers: the server answers one JSON-RPC call at a time and
             // spends that time waiting on the network, not on the CPU.
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -112,7 +110,7 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
 
 #[cfg(feature = "gui")]
 fn run_window(options: &Options) -> anyhow::Result<()> {
-    cli::init_logging(false);
+    cli::init_logging(options);
     gui::run(options)
 }
 

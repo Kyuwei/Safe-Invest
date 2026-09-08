@@ -66,6 +66,9 @@ pub fn run(options: &Options) -> anyhow::Result<()> {
             crate::commands::mcp_access,
             crate::commands::regenerate_mcp_token,
             crate::commands::open_data_dir,
+            crate::commands::read_journal,
+            crate::commands::export_journal,
+            crate::commands::log_ui_error,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

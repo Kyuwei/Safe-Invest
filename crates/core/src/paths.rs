@@ -66,6 +66,17 @@ impl Paths {
     }
 }
 
+/// The desktop, when the system has one and it exists.
+///
+/// Where an exported file goes: somebody who has just been asked to attach a
+/// diagnostic to a message has to be able to find it, and a path inside
+/// `%LOCALAPPDATA%` is not somewhere people find things.
+pub fn desktop_dir() -> Option<PathBuf> {
+    directories::UserDirs::new()
+        .and_then(|dirs| dirs.desktop_dir().map(Path::to_path_buf))
+        .filter(|dir| dir.is_dir())
+}
+
 /// On Unix the data directory holds API keys that are not DPAPI-protected, so
 /// it is made owner-only. On Windows `%LOCALAPPDATA%` is already per-user and
 /// the keys are encrypted on top of that.

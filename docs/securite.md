@@ -137,6 +137,28 @@ L'affichage passe maintenant par une fonction qui ignore l'échec, et des tests 
 binaire avec sa sortie redirigée vers `/dev/full` — qui fait échouer toute écriture — pour
 vérifier que le code de retour reste juste.
 
+## Le journal
+
+Un journal existe pour être envoyé à quelqu'un. C'est ce qui décide de tout le reste.
+
+**Aucun secret n'y entre.** Chaque valeur que le programme traite comme un secret — une
+clé d'API dès qu'elle est déchiffrée, le jeton MCP dès qu'il est créé ou relu — est
+enregistrée auprès du journal, qui la remplace par `[secret masqué]` au moment de
+l'écriture. La protection ne dépend donc pas de la prudence de chaque appel à `tracing` :
+elle est appliquée en dernier, sur le texte qui part vers le fichier. Un test le vérifie,
+et deux autres vérifient qu'une clé lue et un jeton créé sont bien connus du journal.
+
+**Il est borné.** Un fichier courant d'un mégaoctet, un fichier précédent, et rien de
+plus : une rotation remplace le second par le premier. Un journal qui grossit sans fin
+est un défaut, pas une fonctionnalité.
+
+**Il ne part nulle part tout seul.** Rien ne l'envoie : l'export écrit un fichier sur le
+Bureau et s'arrête là. Ce que la personne en fait ensuite lui appartient.
+
+**Il ne peut pas faire échouer l'application.** Un disque plein ou un dossier en lecture
+seule rend le journal indisponible, jamais le lancement impossible : les écritures sont
+silencieusement abandonnées et un message le dit au démarrage.
+
 ## Les fichiers
 
 **Écriture atomique.** Une sauvegarde est écrite dans un fichier temporaire voisin,

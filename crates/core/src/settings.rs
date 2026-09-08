@@ -1,5 +1,6 @@
 //! User preferences and API keys.
 
+use crate::journal;
 use crate::paths::Paths;
 use crate::secret::{self, Sealed};
 use rust_decimal::Decimal;
@@ -126,6 +127,7 @@ impl SettingsService {
         if trimmed.is_empty() {
             settings.protected_api_keys.remove(provider_id);
         } else {
+            journal::keep_out(trimmed);
             settings.protected_api_keys.insert(
                 provider_id.to_owned(),
                 secret::seal(trimmed)?.as_str().to_owned(),
@@ -141,16 +143,26 @@ impl SettingsService {
     pub fn api_key(&self, settings: &AppSettings, provider_id: &str) -> Option<String> {
         if let Some(stored) = settings.protected_api_keys.get(provider_id) {
             match secret::unseal(&Sealed::from_stored(stored.clone())) {
-                Ok(key) => return Some(key),
+                Ok(key) => {
+                    // Registered on the way out, not on the way in: this is the
+                    // one function every caller goes through to obtain a key in
+                    // the clear, so the journal learns about it here or nowhere.
+                    journal::keep_out(&key);
+                    return Some(key);
+                }
                 Err(error) => {
                     tracing::warn!(provider = provider_id, %error, "clé API illisible");
                 }
             }
         }
-        std::env::var(env_var_for(provider_id))
+        let from_env = std::env::var(env_var_for(provider_id))
             .ok()
             .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
+            .filter(|v| !v.is_empty());
+        if let Some(key) = from_env.as_deref() {
+            journal::keep_out(key);
+        }
+        from_env
     }
 
     /// The bearer token for the MCP port, minting one the first time it is needed.
@@ -177,6 +189,7 @@ impl SettingsService {
         let mut settings = self.load();
         settings.protected_mcp_token = Some(secret::seal(&token)?.as_str().to_owned());
         self.save(&settings)?;
+        journal::keep_out(&token);
         Ok(token)
     }
 
@@ -185,7 +198,10 @@ impl SettingsService {
     pub fn mcp_token(&self, settings: &AppSettings) -> Option<String> {
         let stored = settings.protected_mcp_token.as_ref()?;
         match secret::unseal(&Sealed::from_stored(stored.clone())) {
-            Ok(token) => Some(token),
+            Ok(token) => {
+                journal::keep_out(&token);
+                Some(token)
+            }
             Err(error) => {
                 tracing::warn!(%error, "jeton MCP illisible, il sera régénéré");
                 None
@@ -237,6 +253,34 @@ mod tests {
             service.api_key(&settings, "coinmarketcap").unwrap(),
             "super-secret"
         );
+    }
+
+    /// The journal must not be able to learn a key by accident. Reading one is
+    /// the moment it becomes plaintext, so that is the moment it is registered.
+    #[test]
+    fn reading_a_key_teaches_the_journal_to_hide_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new(Paths::at(dir.path()));
+        service
+            .set_api_key("coingecko", "cle-coingecko-a-masquer")
+            .unwrap();
+
+        let settings = service.load();
+        service.api_key(&settings, "coingecko").unwrap();
+
+        assert!(
+            !journal::scrub("requête avec cle-coingecko-a-masquer")
+                .contains("cle-coingecko-a-masquer")
+        );
+    }
+
+    #[test]
+    fn the_mcp_token_is_hidden_from_the_journal_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new(Paths::at(dir.path()));
+        let token = service.ensure_mcp_token().unwrap();
+
+        assert!(!journal::scrub(&format!("Bearer {token}")).contains(&token));
     }
 
     #[test]

@@ -10,6 +10,7 @@
     reason = "tauri::State is taken by value; that is the framework's calling convention"
 )]
 
+use safe_invest_core::journal;
 use safe_invest_core::model::{AssetKind, PlayerKind};
 use safe_invest_core::settings::AppSettings;
 use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
@@ -628,4 +629,110 @@ pub fn open_data_dir(app: tauri::AppHandle, context: tauri::State<'_, Context>) 
             message: format!("Impossible d'ouvrir le dossier : {error}"),
             hint: None,
         })
+}
+
+/* -------------------------------------------------------------- journal */
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalView {
+    pub path: String,
+    pub lines: Vec<String>,
+    pub bytes: u64,
+}
+
+/// The tail of the diagnostic journal, for the settings screen to show.
+///
+/// Capped here rather than trusting the caller: a journal is a megabyte, and
+/// pushing all of it through the bridge to draw a panel nobody scrolls would
+/// be a waste on every visit.
+#[tauri::command]
+pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) -> JournalView {
+    let paths = context.store().paths();
+    let limit = lines.unwrap_or(300).min(2_000);
+
+    JournalView {
+        path: journal::file(paths).display().to_string(),
+        lines: journal::tail(paths, limit),
+        bytes: journal::size(paths),
+    }
+}
+
+/// Writes the whole journal to one file and says where it landed.
+///
+/// It goes to the desktop when there is one. A bug report is written by
+/// somebody who then has to find the file to attach it, and a path inside
+/// `%LOCALAPPDATA%` is not somewhere people find things.
+#[tauri::command]
+pub fn export_journal(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, Context>,
+) -> Answer<ExportedJournal> {
+    use tauri_plugin_opener::OpenerExt as _;
+
+    let paths = context.store().paths();
+    let destination =
+        safe_invest_core::paths::desktop_dir().unwrap_or_else(|| paths.root().to_path_buf());
+
+    let exported =
+        journal::export(paths, &destination, &export_header(context.inner())).map_err(|error| {
+            CommandError {
+                message: format!("Impossible d'écrire le journal : {error}"),
+                hint: Some("Vérifiez l'espace disque disponible.".to_owned()),
+            }
+        })?;
+
+    // Reveal it rather than open it: the file is meant to be attached to a
+    // message, not read on screen.
+    let _ = app.opener().reveal_item_in_dir(&exported).or_else(|_| {
+        app.opener()
+            .open_path(destination.display().to_string(), None::<&str>)
+    });
+
+    Ok(ExportedJournal {
+        path: exported.display().to_string(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedJournal {
+    pub path: String,
+}
+
+/// What the journal is worth nothing without: which build, on which machine.
+fn export_header(context: &Context) -> String {
+    let settings = context.settings();
+    format!(
+        "Safe Invest {version} — journal exporté le {when}\n\
+         système : {os} {arch}\n\
+         dossier : {dir}\n\
+         mode    : {mode}\n\
+         port MCP: {port}",
+        version = safe_invest_core::VERSION,
+        when = jiff::Zoned::now().strftime("%d/%m/%Y à %H:%M"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+        dir = context.store().paths().root().display(),
+        mode = if settings.force_simulated_mode {
+            "démonstration (cours simulés)"
+        } else {
+            "cours réels"
+        },
+        port = if settings.mcp_http_enabled {
+            format!("activé sur 127.0.0.1:{}", settings.mcp_http_port)
+        } else {
+            "désactivé".to_owned()
+        },
+    )
+}
+
+/// Records something the interface could not do, so the journal holds both
+/// halves of the program rather than only the Rust one.
+#[tauri::command]
+pub fn log_ui_error(message: String) {
+    // Bounded: a loop of failing renders must not be able to fill the journal
+    // with one enormous line.
+    let message: String = message.chars().take(500).collect();
+    tracing::error!(target: "safe_invest::ui", "{message}");
 }

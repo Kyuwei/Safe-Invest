@@ -40,8 +40,12 @@ En cas de doute :
 safe-invest.exe doctor
 ```
 
-affiche où sont vos données, si le moteur web est présent et quelles sources de cours
-sont configurées.
+affiche où sont vos données, si le moteur web est présent, quelles sources de cours sont
+configurées et où se trouve le journal de diagnostic.
+
+Quand quelque chose se passe mal, ce journal est ce qu'il faut envoyer : **Paramètres →
+Journal → Exporter le journal** en dépose une copie sur le Bureau. Il ne contient ni clé
+d'API ni jeton — ils sont masqués avant écriture — et rien ne l'envoie à votre place.
 
 > Une particularité de Windows : Safe Invest est une application fenêtrée, donc le double-clic
 > n'ouvre pas de console noire — mais en contrepartie l'invite de commandes **ne l'attend pas**.

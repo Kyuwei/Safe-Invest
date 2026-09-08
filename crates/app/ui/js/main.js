@@ -3,7 +3,7 @@
  */
 
 import { AppError, api, onGameChanged } from "./api.js";
-import { $, $$, reportError, toast } from "./ui.js";
+import { $, $$, onError, reportError, toast } from "./ui.js";
 import * as screens from "./screens.js";
 import { goalPreview } from "./goal.js";
 import { areaPath, direction as curveDirection, linePath } from "./sparkline.js";
@@ -709,6 +709,7 @@ async function loadSettings() {
   // would still look unticked. Two independent panels, loaded independently.
   refreshSources();
   refreshMcpAccess();
+  refreshJournal();
 }
 
 async function refreshSources() {
@@ -717,6 +718,34 @@ async function refreshSources() {
   } catch (error) {
     reportError(error);
   }
+}
+
+/**
+ * Draws the tail of the journal.
+ *
+ * Newest last, and scrolled to the bottom: the interesting line is the one
+ * written just before whatever went wrong, not the one from an hour ago.
+ */
+async function refreshJournal() {
+  const view = $("#journal-view");
+  try {
+    const journal = await api.readJournal(300);
+    view.textContent = journal.lines.length
+      ? journal.lines.join("\n")
+      : "Rien pour l'instant.";
+    view.scrollTop = view.scrollHeight;
+
+    $("#journal-meta").textContent = `${journal.path} · ${formatBytes(journal.bytes)}`;
+  } catch (error) {
+    view.textContent = "Journal illisible.";
+    reportError(error);
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
 /**
@@ -797,6 +826,26 @@ function bindSettings() {
 
   $("#btn-open-data").addEventListener("click", () => api.openDataDir().catch(reportError));
 
+  $("#btn-journal-refresh").addEventListener("click", refreshJournal);
+
+  $("#btn-journal-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("#journal-view").textContent);
+      toast("Journal copié.", "ok");
+    } catch {
+      toast("Copie refusée par le système — sélectionnez le texte à la main.", "error");
+    }
+  });
+
+  $("#btn-journal-export").addEventListener("click", async () => {
+    try {
+      const { path } = await api.exportJournal();
+      toast(`Journal exporté : ${path}`, "ok");
+    } catch (error) {
+      reportError(error);
+    }
+  });
+
   $("#opt-mcp-http").addEventListener("change", (event) =>
     persist({ mcpHttpEnabled: event.target.checked })
   );
@@ -869,12 +918,18 @@ async function applyDisplaySettings() {
 
 // Nothing thrown in this window should die quietly. A button whose handler
 // threw used to do exactly nothing — no message, no trace — and that is how a
-// broken « Appliquer » went unnoticed. Say it out loud instead.
+// broken « Appliquer » went unnoticed. Say it out loud, and write it down.
 window.addEventListener("unhandledrejection", (event) => {
   reportError(event.reason);
 });
 window.addEventListener("error", (event) => {
   reportError(event.error ?? event.message);
+});
+
+onError((message) => {
+  api.logUiError(message).catch(() => {
+    // The journal is unreachable; the toast has already been shown.
+  });
 });
 
 boot().catch(reportError);

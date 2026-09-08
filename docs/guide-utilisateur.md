@@ -196,6 +196,16 @@ est visible dans le bloc de configuration, donc traitez-le comme un mot de passe
 vous l'avez collé quelque part par erreur, « Régénérer le jeton » invalide l'ancien sur
 l'instant. Le port se referme dès que la fenêtre se ferme.
 
+**Journal de diagnostic** — ce que le programme a fait, et ce qui a échoué, écrit dans un
+fichier au fil de l'eau. Le panneau en montre la fin ; **Exporter le journal** en écrit une
+copie complète sur votre Bureau, à joindre à un signalement.
+
+Quand quelque chose ne marche pas, c'est le premier endroit à regarder — et la seule chose
+à envoyer si vous demandez de l'aide. Aucune clé d'API ni jeton MCP n'y figure : ils sont
+remplacés par `[secret masqué]` avant même d'être écrits. Le fichier ne dépasse jamais
+deux mégaoctets et n'est envoyé nulle part : il reste sur votre machine tant que vous ne
+l'envoyez pas vous-même.
+
 **Ouvrir le dossier des parties** — le dossier des sauvegardes. C'est le même que lit le
 serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtre affiche.
 

@@ -87,7 +87,9 @@ safe-invest.exe doctor
 ```
 
 Si le diagnostic passe, le serveur démarrera. Les journaux du serveur partent sur la
-sortie d'erreur ; la sortie standard ne transporte que le protocole.
+sortie d'erreur ; la sortie standard ne transporte que le protocole. Ils sont aussi
+écrits dans le journal de diagnostic, dont `doctor` donne le chemin — c'est là qu'on
+retrouve ce qui s'est passé quand un client s'est connecté sans qu'on regarde.
 
 Sous Windows, l'invite de commandes n'attend pas une application fenêtrée : le texte du
 diagnostic s'affiche bien, parfois juste après le retour du prompt. Utilisez
