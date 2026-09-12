@@ -3,7 +3,7 @@
  */
 
 import { AppError, api, onGameChanged } from "./api.js";
-import { $, $$, reportError, toast } from "./ui.js";
+import { $, $$, onError, reportError, toast } from "./ui.js";
 import * as screens from "./screens.js";
 import { goalPreview } from "./goal.js";
 import { areaPath, direction as curveDirection, linePath } from "./sparkline.js";
@@ -17,6 +17,7 @@ const state = {
   marketKind: "all",
   asset: null,
   history: { trades: [], summary: "", side: "all", search: "" },
+  mcpAccess: null,
   info: null,
   refreshSeconds: 60,
   timer: 0,
@@ -38,7 +39,7 @@ async function boot() {
     $("#version-line").textContent =
       `Safe Invest ${state.info.version} · données dans ${state.info.dataDir}` +
       (state.info.demoMode ? " · mode démonstration" : "");
-    $("#mcp-config").textContent = mcpConfig(state.info);
+    $("#mcp-config").textContent = mcpConfig(null, state.info);
     screens.renderMcpTools(state.info.mcpTools);
   }
 
@@ -55,11 +56,28 @@ async function boot() {
 /**
  * The block to paste into an MCP client.
  *
- * Built from this executable's own path rather than a placeholder, because a
- * placeholder is one more thing to get wrong before anything works at all.
+ * Two shapes, because there are two transports. Both are built from what this
+ * machine actually has — the executable's own path, the port really being
+ * listened on, the token really in force — rather than from placeholders,
+ * because a placeholder is one more thing to get wrong before anything works.
  */
-function mcpConfig(info) {
-  const command = info.exePath ?? "C:\\chemin\\vers\\safe-invest.exe";
+function mcpConfig(access, info) {
+  if (access?.status?.listening && access.token) {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "safe-invest": {
+            url: access.status.url,
+            headers: { Authorization: `Bearer ${access.token}` },
+          },
+        },
+      },
+      null,
+      2
+    );
+  }
+
+  const command = access?.exePath ?? info?.exePath ?? "C:\\chemin\\vers\\safe-invest.exe";
   return JSON.stringify(
     { mcpServers: { "safe-invest": { command, args: ["mcp"] } } },
     null,
@@ -85,6 +103,18 @@ function bindNavigation() {
 function selectTab(name) {
   state.tab = name;
   screens.showTab(name);
+  loadTab(name);
+}
+
+/**
+ * Fills a tab with what it shows.
+ *
+ * Separate from `selectTab` because a tab can also be reached without going
+ * through it — from the home menu, straight into Settings. That path used to
+ * show the panel without ever loading it: no sources, no keys, and an MCP
+ * switch that read as off while the port was serving.
+ */
+function loadTab(name) {
   if (name === "market") loadMarket();
   if (name === "history") loadHistory();
   if (name === "settings") loadSettings();
@@ -220,6 +250,7 @@ function enterShell(tab, inGame) {
 
   screens.showScreen("shell");
   screens.showTab(tab);
+  loadTab(tab);
 }
 
 async function enterGame() {
@@ -668,8 +699,85 @@ async function loadSettings() {
         await loadSettings();
       },
     });
+  } catch (error) {
+    reportError(error);
+  }
 
+  // Deliberately not awaited in sequence. Reading the state of the market
+  // sources can take as long as a source takes to answer, and while it did,
+  // the MCP panel below stayed blank — the port could be serving and the box
+  // would still look unticked. Two independent panels, loaded independently.
+  refreshSources();
+  refreshMcpAccess();
+  refreshJournal();
+}
+
+async function refreshSources() {
+  try {
     screens.renderSources(await api.marketSources());
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+/**
+ * Draws the tail of the journal.
+ *
+ * Newest last, and scrolled to the bottom: the interesting line is the one
+ * written just before whatever went wrong, not the one from an hour ago.
+ */
+async function refreshJournal() {
+  const view = $("#journal-view");
+  try {
+    const journal = await api.readJournal(300);
+    view.textContent = journal.lines.length
+      ? journal.lines.join("\n")
+      : "Rien pour l'instant.";
+    view.scrollTop = view.scrollHeight;
+
+    $("#journal-meta").textContent = `${journal.path} · ${formatBytes(journal.bytes)}`;
+  } catch (error) {
+    view.textContent = "Journal illisible.";
+    reportError(error);
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+/**
+ * Draws everything about the MCP port from what the program reports.
+ *
+ * Never from what the checkbox says: a port that failed to open must not look
+ * open because the setting that asked for it is on.
+ */
+async function refreshMcpAccess() {
+  try {
+    const access = await api.mcpAccess();
+    state.mcpAccess = access;
+
+    $("#opt-mcp-http").checked = access.enabled;
+    $("#opt-mcp-port").value = String(access.configuredPort);
+    $("#mcp-port-row").hidden = !access.enabled;
+    $("#mcp-port-note").hidden = !access.enabled;
+    $("#btn-mcp-token").hidden = !access.status.listening;
+
+    const status = $("#mcp-status");
+    if (access.status.listening) {
+      status.textContent = `À l'écoute sur ${access.status.url}`;
+      status.className = "mcp-status is-listening";
+    } else if (access.status.problem) {
+      status.textContent = access.status.problem;
+      status.className = "mcp-status is-broken";
+    } else {
+      status.textContent = access.enabled ? "Démarrage…" : "";
+      status.className = "mcp-status";
+    }
+
+    $("#mcp-config").textContent = mcpConfig(access, state.info);
   } catch (error) {
     reportError(error);
   }
@@ -681,18 +789,26 @@ function syncRefreshButtons(seconds) {
   }
 }
 
-function bindSettings() {
-  const persist = async (change) => {
-    try {
-      const { settings } = await api.getSettings();
-      await api.saveSettings({ ...settings, ...change });
-      await applyDisplaySettings();
-      screens.renderSources(await api.marketSources());
-    } catch (error) {
-      reportError(error);
-    }
-  };
+/**
+ * Writes one changed preference, then redraws what depends on it.
+ *
+ * At module scope, not inside `bindSettings`: `applyMcpPort` calls it too, and
+ * as a local it was simply not there — the Apply button threw and the port
+ * never moved, without a word on screen.
+ */
+async function persist(change) {
+  try {
+    const { settings } = await api.getSettings();
+    await api.saveSettings({ ...settings, ...change });
+    await applyDisplaySettings();
+    await refreshMcpAccess();
+    refreshSources();
+  } catch (error) {
+    reportError(error);
+  }
+}
 
+function bindSettings() {
   $("#opt-colourblind").addEventListener("change", (event) =>
     persist({ colourBlindPalette: event.target.checked })
   );
@@ -710,6 +826,53 @@ function bindSettings() {
 
   $("#btn-open-data").addEventListener("click", () => api.openDataDir().catch(reportError));
 
+  $("#btn-journal-refresh").addEventListener("click", refreshJournal);
+
+  $("#btn-journal-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("#journal-view").textContent);
+      toast("Journal copié.", "ok");
+    } catch {
+      toast("Copie refusée par le système — sélectionnez le texte à la main.", "error");
+    }
+  });
+
+  $("#btn-journal-export").addEventListener("click", async () => {
+    try {
+      const { path } = await api.exportJournal();
+      toast(`Journal exporté : ${path}`, "ok");
+    } catch (error) {
+      reportError(error);
+    }
+  });
+
+  $("#opt-mcp-http").addEventListener("change", (event) =>
+    persist({ mcpHttpEnabled: event.target.checked })
+  );
+
+  // Applied on demand rather than on every keystroke: half a port number is a
+  // port number, and moving the server to 98 while someone types 9800 would
+  // fail loudly for no reason.
+  $("#btn-mcp-port").addEventListener("click", applyMcpPort);
+  $("#opt-mcp-port").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyMcpPort();
+  });
+
+  $("#btn-mcp-token").addEventListener("click", async () => {
+    const ok = confirm(
+      "Régénérer le jeton ?\n\n" +
+        "Tout client configuré avec l'ancien jeton cessera aussitôt d'être accepté."
+    );
+    if (!ok) return;
+    try {
+      await api.regenerateMcpToken();
+      await refreshMcpAccess();
+      toast("Nouveau jeton en service. Recopiez la configuration.", "ok");
+    } catch (error) {
+      reportError(error);
+    }
+  });
+
   $("#btn-copy-mcp").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText($("#mcp-config").textContent);
@@ -718,6 +881,28 @@ function bindSettings() {
       toast("Copie refusée par le système — sélectionnez le bloc à la main.", "error");
     }
   });
+}
+
+/**
+ * Moves the port, refusing the number that started all this.
+ *
+ * 98 000 is not a large port — a port is sixteen bits, so it is not a port at
+ * all. Saying that here means the mistake is caught while the person is still
+ * looking at the box they typed it into.
+ */
+async function applyMcpPort() {
+  const typed = $("#opt-mcp-port").value.trim();
+  const port = Number(typed);
+
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    toast(
+      `« ${typed} » n'est pas un port utilisable. Un port va de 1024 à 65535.`,
+      "error"
+    );
+    return;
+  }
+
+  await persist({ mcpHttpPort: port });
 }
 
 async function applyDisplaySettings() {
@@ -730,5 +915,21 @@ async function applyDisplaySettings() {
     // Display preferences are a convenience; never block the app on them.
   }
 }
+
+// Nothing thrown in this window should die quietly. A button whose handler
+// threw used to do exactly nothing — no message, no trace — and that is how a
+// broken « Appliquer » went unnoticed. Say it out loud, and write it down.
+window.addEventListener("unhandledrejection", (event) => {
+  reportError(event.reason);
+});
+window.addEventListener("error", (event) => {
+  reportError(event.error ?? event.message);
+});
+
+onError((message) => {
+  api.logUiError(message).catch(() => {
+    // The journal is unreachable; the toast has already been shown.
+  });
+});
 
 boot().catch(reportError);

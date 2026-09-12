@@ -433,6 +433,33 @@
                     Un intervalle court épuise plus vite les quotas gratuits.
                   </p>
                 </section>
+
+                <h2 class="section-title">Diagnostic</h2>
+
+                <section class="panel">
+                  <h2>Journal</h2>
+                  <p class="field-note">
+                    Ce que le programme a fait, et ce qui a échoué. Aucune clé d'API ni
+                    jeton MCP n'y figure&nbsp;: ils sont remplacés avant l'écriture.
+                  </p>
+                  <pre class="code-block log-view" id="journal-view">—</pre>
+                  <p class="field-note" id="journal-meta"></p>
+                  <div class="button-row">
+                    <button class="ghost" type="button" id="btn-journal-refresh">
+                      Rafraîchir
+                    </button>
+                    <button class="ghost" type="button" id="btn-journal-copy">
+                      Copier
+                    </button>
+                    <button class="ghost" type="button" id="btn-journal-export">
+                      Exporter le journal
+                    </button>
+                  </div>
+                  <p class="field-note">
+                    L'export écrit un fichier texte sur le Bureau — ou dans le dossier
+                    des parties s'il n'y en a pas — à joindre à un signalement.
+                  </p>
+                </section>
               </div>
 
               <div class="settings-col">
@@ -448,9 +475,32 @@
                   </div>
 
                   <p class="field-note">
-                    Le serveur parle par l'entrée et la sortie standard&nbsp;: il n'ouvre
-                    aucun port, donc il n'y a ni adresse à exposer ni jeton à protéger.
-                    C'est le même exécutable, lancé avec <code>mcp</code>.
+                    Par défaut le serveur parle par l'entrée et la sortie standard&nbsp;:
+                    votre client lance l'exécutable lui-même. C'est le mode le plus sûr,
+                    puisqu'il n'ouvre aucun port.
+                  </p>
+
+                  <label class="switch">
+                    <input type="checkbox" id="opt-mcp-http" />
+                    <span>
+                      Écouter aussi sur un port local, pour les clients qui préfèrent
+                      une adresse à un chemin d'exécutable
+                    </span>
+                  </label>
+
+                  <div class="mcp-port" id="mcp-port-row" hidden>
+                    <label class="field">
+                      <span class="field-label">Port</span>
+                      <input id="opt-mcp-port" inputmode="numeric" maxlength="5" />
+                    </label>
+                    <button class="ghost" type="button" id="btn-mcp-port">Appliquer</button>
+                    <p class="mcp-status" id="mcp-status"></p>
+                  </div>
+
+                  <p class="field-note" id="mcp-port-note" hidden>
+                    L'écoute est limitée à <code>127.0.0.1</code>&nbsp;: rien depuis le
+                    réseau ne peut l'atteindre. Un jeton est exigé à chaque requête, et
+                    les requêtes venues d'un navigateur sont refusées.
                   </p>
 
                   <div class="field">
@@ -458,9 +508,14 @@
                     <pre class="code-block" id="mcp-config">—</pre>
                   </div>
 
-                  <button class="ghost" type="button" id="btn-copy-mcp">
-                    Copier la configuration
-                  </button>
+                  <div class="mcp-actions">
+                    <button class="ghost" type="button" id="btn-copy-mcp">
+                      Copier la configuration
+                    </button>
+                    <button class="ghost" type="button" id="btn-mcp-token" hidden>
+                      Régénérer le jeton
+                    </button>
+                  </div>
 
                   <div class="field">
                     <span class="field-label">Outils exposés à l'IA</span>

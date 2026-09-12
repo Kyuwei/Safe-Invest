@@ -8,6 +8,7 @@
 pub mod engine;
 pub mod factory;
 pub mod goal;
+pub mod journal;
 pub mod model;
 pub mod money;
 pub mod paths;

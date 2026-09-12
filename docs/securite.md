@@ -35,6 +35,46 @@ un message d'erreur finit dans un journal ou dans une bulle à l'écran. Les err
 transport disent « connexion impossible » ou « délai dépassé », rien de plus. Un test
 vérifie qu'une clé ne peut pas apparaître dans un message.
 
+## Le port MCP, quand il est ouvert
+
+L'application n'écoute sur rien tant que personne ne le demande. Le serveur MCP parle
+par l'entrée et la sortie standard, et c'est le mode par défaut, précisément parce qu'il
+n'ouvre aucun port. Le port local est une case à cocher, jamais un réglage initial :
+ouvrir un port est une décision sur une machine, et ce n'est pas à un programme de la
+prendre à la place de quelqu'un.
+
+Une fois ouvert, quatre verrous indépendants le gardent, chacun suffisant seul :
+
+**L'écoute est liée à `127.0.0.1`**, pas à `0.0.0.0`. L'adresse n'est pas configurable —
+c'est le premier verrou, et le rendre réglable reviendrait à offrir un moyen de le
+retirer. Rien venu du réseau ne peut ouvrir la connexion.
+
+**Un jeton est exigé à chaque requête.** Deux UUID v4 en hexadécimal, soit 244 bits tirés
+de la même source d'entropie qu'une clé. Il est scellé par DPAPI comme les clés d'API, il
+n'apparaît ni dans les journaux ni dans le diagnostic — qui dit seulement s'il existe —
+et la comparaison est faite en temps constant. « Régénérer le jeton » invalide l'ancien
+immédiatement.
+
+**L'en-tête `Host` doit nommer le bouclage.** C'est ce qui ferme le réattachement DNS :
+une page qui ferait pointer `evil.example` sur 127.0.0.1 nous atteindrait en même origine,
+CORS hors-jeu, avec un `Host: evil.example` que ce contrôle rejette.
+
+**L'`Origin`, quand il y en a une, doit être le bouclage.** Un client natif n'en envoie
+pas et passe ; un navigateur en envoie toujours une et se fait renvoyer. Une page web n'a
+pas besoin de lire la réponse pour faire du dégât : poster suffit à passer un ordre.
+
+Deux détails qui comptent autant que les quatre verrous :
+
+**Aucune réponse ne porte d'en-tête CORS**, ni sur un succès, ni sur un refus, et une
+requête `OPTIONS` n'obtient jamais de réponse favorable. Un `Access-Control-Allow-Origin`
+serait la seule ligne capable de défaire tout le reste, donc un test vérifie qu'aucune
+réponse n'en porte. C'est aussi pour cela que le serveur n'accepte du JSON qu'en
+`application/json` : c'est un type qu'un navigateur ne peut pas envoyer d'une autre
+origine sans demander d'abord la permission — permission qui n'est jamais accordée.
+
+**Seul `/mcp` existe.** Tout autre chemin renvoie 404 avant d'atteindre quoi que ce soit,
+et seules les méthodes du transport sont acceptées.
+
 ## Les clés d'API
 
 **Chiffrées au repos.** Sous Windows, une clé est scellée par DPAPI sous le compte
@@ -96,6 +136,28 @@ pas de sortie standard. Sous `panic = "abort"`, cela donnait un code d'erreur mu
 L'affichage passe maintenant par une fonction qui ignore l'échec, et des tests lancent le
 binaire avec sa sortie redirigée vers `/dev/full` — qui fait échouer toute écriture — pour
 vérifier que le code de retour reste juste.
+
+## Le journal
+
+Un journal existe pour être envoyé à quelqu'un. C'est ce qui décide de tout le reste.
+
+**Aucun secret n'y entre.** Chaque valeur que le programme traite comme un secret — une
+clé d'API dès qu'elle est déchiffrée, le jeton MCP dès qu'il est créé ou relu — est
+enregistrée auprès du journal, qui la remplace par `[secret masqué]` au moment de
+l'écriture. La protection ne dépend donc pas de la prudence de chaque appel à `tracing` :
+elle est appliquée en dernier, sur le texte qui part vers le fichier. Un test le vérifie,
+et deux autres vérifient qu'une clé lue et un jeton créé sont bien connus du journal.
+
+**Il est borné.** Un fichier courant d'un mégaoctet, un fichier précédent, et rien de
+plus : une rotation remplace le second par le premier. Un journal qui grossit sans fin
+est un défaut, pas une fonctionnalité.
+
+**Il ne part nulle part tout seul.** Rien ne l'envoie : l'export écrit un fichier sur le
+Bureau et s'arrête là. Ce que la personne en fait ensuite lui appartient.
+
+**Il ne peut pas faire échouer l'application.** Un disque plein ou un dossier en lecture
+seule rend le journal indisponible, jamais le lancement impossible : les écritures sont
+silencieusement abandonnées et un message le dit au démarrage.
 
 ## Les fichiers
 

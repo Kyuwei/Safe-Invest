@@ -10,6 +10,7 @@
     reason = "tauri::State is taken by value; that is the framework's calling convention"
 )]
 
+use safe_invest_core::journal;
 use safe_invest_core::model::{AssetKind, PlayerKind};
 use safe_invest_core::settings::AppSettings;
 use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
@@ -28,6 +29,17 @@ use uuid::Uuid;
 pub struct CommandError {
     pub message: String,
     pub hint: Option<String>,
+}
+
+impl From<safe_invest_core::settings::SettingsError> for CommandError {
+    fn from(error: safe_invest_core::settings::SettingsError) -> Self {
+        Self {
+            message: error.to_string(),
+            hint: Some(
+                "Vérifiez que le dossier des réglages est accessible en écriture.".to_owned(),
+            ),
+        }
+    }
 }
 
 impl From<ServiceError> for CommandError {
@@ -503,11 +515,61 @@ pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
 #[tauri::command]
 pub async fn save_settings(
     context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
     settings: AppSettings,
-) -> Answer<()> {
+) -> Answer<crate::mcp_port::PortStatus> {
     context.save_settings(&settings)?;
     context.reload_market().await?;
-    Ok(())
+    // The port follows the setting immediately: a toggle that only takes
+    // effect at the next launch is a toggle nobody trusts.
+    Ok(port.reconcile(&context).await)
+}
+
+/// What the MCP port is doing, and everything a client needs to reach it.
+///
+/// The token is returned here — unlike an API key, which is somebody else's
+/// secret and is never read back. This one is ours, it is useless anywhere but
+/// this machine, and a person cannot configure a client without seeing it.
+#[tauri::command]
+pub fn mcp_access(
+    context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
+) -> McpAccess {
+    let settings = context.stored_settings();
+    McpAccess {
+        status: port.status(),
+        enabled: settings.mcp_http_enabled,
+        configured_port: settings.mcp_http_port,
+        token: context.settings_service().mcp_token(&settings),
+        exe_path: std::env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAccess {
+    pub status: crate::mcp_port::PortStatus,
+    pub enabled: bool,
+    pub configured_port: u16,
+    /// Absent until the server has been switched on once.
+    pub token: Option<String>,
+    pub exe_path: Option<String>,
+}
+
+/// Mints a new token, which immediately locks out anything holding the old one.
+#[tauri::command]
+pub async fn regenerate_mcp_token(
+    context: tauri::State<'_, Context>,
+    port: tauri::State<'_, crate::mcp_port::McpPort>,
+) -> Answer<String> {
+    let token = context.settings_service().regenerate_mcp_token()?;
+    // The running server still holds the old token in memory, so it has to be
+    // restarted or the new one would not work until the next launch.
+    port.stop_for_restart();
+    port.reconcile(&context).await;
+    Ok(token)
 }
 
 /// Stores an API key. There is deliberately no command to read one back:
@@ -567,4 +629,110 @@ pub fn open_data_dir(app: tauri::AppHandle, context: tauri::State<'_, Context>) 
             message: format!("Impossible d'ouvrir le dossier : {error}"),
             hint: None,
         })
+}
+
+/* -------------------------------------------------------------- journal */
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalView {
+    pub path: String,
+    pub lines: Vec<String>,
+    pub bytes: u64,
+}
+
+/// The tail of the diagnostic journal, for the settings screen to show.
+///
+/// Capped here rather than trusting the caller: a journal is a megabyte, and
+/// pushing all of it through the bridge to draw a panel nobody scrolls would
+/// be a waste on every visit.
+#[tauri::command]
+pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) -> JournalView {
+    let paths = context.store().paths();
+    let limit = lines.unwrap_or(300).min(2_000);
+
+    JournalView {
+        path: journal::file(paths).display().to_string(),
+        lines: journal::tail(paths, limit),
+        bytes: journal::size(paths),
+    }
+}
+
+/// Writes the whole journal to one file and says where it landed.
+///
+/// It goes to the desktop when there is one. A bug report is written by
+/// somebody who then has to find the file to attach it, and a path inside
+/// `%LOCALAPPDATA%` is not somewhere people find things.
+#[tauri::command]
+pub fn export_journal(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, Context>,
+) -> Answer<ExportedJournal> {
+    use tauri_plugin_opener::OpenerExt as _;
+
+    let paths = context.store().paths();
+    let destination =
+        safe_invest_core::paths::desktop_dir().unwrap_or_else(|| paths.root().to_path_buf());
+
+    let exported =
+        journal::export(paths, &destination, &export_header(context.inner())).map_err(|error| {
+            CommandError {
+                message: format!("Impossible d'écrire le journal : {error}"),
+                hint: Some("Vérifiez l'espace disque disponible.".to_owned()),
+            }
+        })?;
+
+    // Reveal it rather than open it: the file is meant to be attached to a
+    // message, not read on screen.
+    let _ = app.opener().reveal_item_in_dir(&exported).or_else(|_| {
+        app.opener()
+            .open_path(destination.display().to_string(), None::<&str>)
+    });
+
+    Ok(ExportedJournal {
+        path: exported.display().to_string(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedJournal {
+    pub path: String,
+}
+
+/// What the journal is worth nothing without: which build, on which machine.
+fn export_header(context: &Context) -> String {
+    let settings = context.settings();
+    format!(
+        "Safe Invest {version} — journal exporté le {when}\n\
+         système : {os} {arch}\n\
+         dossier : {dir}\n\
+         mode    : {mode}\n\
+         port MCP: {port}",
+        version = safe_invest_core::VERSION,
+        when = jiff::Zoned::now().strftime("%d/%m/%Y à %H:%M"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+        dir = context.store().paths().root().display(),
+        mode = if settings.force_simulated_mode {
+            "démonstration (cours simulés)"
+        } else {
+            "cours réels"
+        },
+        port = if settings.mcp_http_enabled {
+            format!("activé sur 127.0.0.1:{}", settings.mcp_http_port)
+        } else {
+            "désactivé".to_owned()
+        },
+    )
+}
+
+/// Records something the interface could not do, so the journal holds both
+/// halves of the program rather than only the Rust one.
+#[tauri::command]
+pub fn log_ui_error(message: String) {
+    // Bounded: a loop of failing renders must not be able to fill the journal
+    // with one enormous line.
+    let message: String = message.chars().take(500).collect();
+    tracing::error!(target: "safe_invest::ui", "{message}");
 }

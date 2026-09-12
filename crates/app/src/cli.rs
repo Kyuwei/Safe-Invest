@@ -5,6 +5,8 @@
 //! shipped binary should earn its place.
 
 use anyhow::Context as _;
+use safe_invest_core::journal;
+use safe_invest_core::settings::MIN_MCP_PORT as MIN_PORT;
 use safe_invest_service::{Context, ContextConfig};
 use std::path::PathBuf;
 
@@ -38,6 +40,7 @@ Safe Invest — simulateur d'investissement pédagogique.
 UTILISATION
     safe-invest [OPTIONS]              Ouvre la fenêtre
     safe-invest mcp [OPTIONS]          Démarre le serveur MCP (stdin/stdout)
+    safe-invest mcp --http [--port N]  Démarre le serveur MCP sur 127.0.0.1
     safe-invest doctor [OPTIONS]       Vérifie l'installation et affiche un diagnostic
     safe-invest --version
     safe-invest --help
@@ -46,6 +49,9 @@ OPTIONS
     --data-dir <CHEMIN>   Dossier des parties et des réglages
                           (par défaut : %LOCALAPPDATA%\\SafeInvest)
     --demo                Force le marché simulé : aucun appel réseau
+    --http                Sert le MCP sur un port de bouclage au lieu de stdio
+    --port <PORT>         Port d'écoute (implique --http ; 9800 par défaut).
+                          L'écoute est toujours limitée à 127.0.0.1.
     -h, --help            Affiche cette aide
     -V, --version         Affiche la version
 
@@ -57,7 +63,9 @@ VARIABLES D'ENVIRONNEMENT
                                 SAFEINVEST_COINMARKETCAP_KEY
 
 Pour brancher une IA, ajoutez à votre client MCP :
-    { \"command\": \"safe-invest\", \"args\": [\"mcp\"] }";
+    { \"command\": \"safe-invest\", \"args\": [\"mcp\"] }
+ou, en mode port, pointez le client sur http://127.0.0.1:9800/mcp avec
+l'en-tête « Authorization: Bearer … » que les Paramètres affichent.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -72,6 +80,10 @@ pub enum Command {
 pub struct Options {
     pub data_dir: Option<PathBuf>,
     pub demo: bool,
+    /// `mcp --http` — serve on a loopback port instead of stdin/stdout.
+    pub http: bool,
+    /// The port for that, when `--port` was given. `None` uses the setting.
+    pub port: Option<u16>,
 }
 
 /// Reads the command line. Returns the message to print on a bad invocation
@@ -92,6 +104,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<(Command, Options
             "-h" | "--help" => return Ok((Command::Help, options)),
             "-V" | "--version" => return Ok((Command::Version, options)),
             "--demo" => options.demo = true,
+            "--http" => options.http = true,
+            "--port" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--port attend un numéro de port.".to_owned())?;
+                options.port = Some(parse_port(&value)?);
+                options.http = true;
+            }
             "--data-dir" => {
                 let path = args
                     .next()
@@ -110,6 +130,28 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<(Command, Options
     Ok((command.unwrap_or(Command::Window), options))
 }
 
+/// Reads a port, refusing the two mistakes that are easy to make.
+///
+/// A TCP port is sixteen bits. "98000" is not a large port, it is not a port,
+/// and the error says so rather than wrapping it into something that happens to
+/// fit.
+fn parse_port(value: &str) -> Result<u16, String> {
+    let trimmed = value.trim();
+    let port: u32 = trimmed
+        .parse()
+        .map_err(|_| format!("Port invalide : « {trimmed} »."))?;
+
+    let port = u16::try_from(port)
+        .map_err(|_| format!("Port hors limites : {port}. Un port va de {MIN_PORT} à 65535."))?;
+
+    if port < MIN_PORT {
+        return Err(format!(
+            "Port réservé : {port}. Choisissez un port entre {MIN_PORT} et 65535."
+        ));
+    }
+    Ok(port)
+}
+
 pub fn build_context(options: &Options) -> anyhow::Result<Context> {
     Context::new(&ContextConfig {
         data_dir: options.data_dir.clone(),
@@ -118,21 +160,77 @@ pub fn build_context(options: &Options) -> anyhow::Result<Context> {
     .context("impossible de préparer le dossier de données")
 }
 
-/// Sets up logging. `stderr_only` is what MCP mode needs — stdout is the
-/// transport there, and a log line on it corrupts the protocol stream.
-pub fn init_logging(stderr_only: bool) {
+/// Where the program is writing its files, before a `Context` exists.
+///
+/// Logging is set up first — a failure while building the context is exactly
+/// the kind of thing the journal is for — so it resolves the directory the
+/// same way `Context` will, rather than waiting for it.
+pub fn paths_for(options: &Options) -> safe_invest_core::Paths {
+    options.data_dir.clone().map_or_else(
+        safe_invest_core::Paths::discover,
+        safe_invest_core::Paths::at,
+    )
+}
+
+/// Sends every log line to the console and to the journal at once.
+///
+/// Two sinks, because they answer different questions. The console is for
+/// whoever is watching right now; the journal is for the person who noticed an
+/// hour later and has nothing but a window that misbehaved.
+///
+/// The console half is always standard error. In MCP mode standard output
+/// carries the protocol and one stray line on it makes the client stop
+/// answering; in `doctor` it carries a report people paste into bug reports.
+/// Neither wants log lines mixed in.
+struct Sink {
+    journal: Option<journal::Handle>,
+}
+
+impl std::io::Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(journal) = self.journal.as_mut() {
+            let _ = journal.write(buf);
+        }
+        // Best-effort on purpose: a windowed build has no console attached, and
+        // that must not cost the journal its line.
+        let _ = std::io::stderr().write_all(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(journal) = self.journal.as_mut() {
+            let _ = journal.flush();
+        }
+        Ok(())
+    }
+}
+
+/// Sets up logging: standard error for whoever is watching, and the journal
+/// under the data directory for everyone else.
+pub fn init_logging(options: &Options) {
     use tracing_subscriber::EnvFilter;
 
     let filter = EnvFilter::try_from_env("SAFEINVEST_LOG")
         .unwrap_or_else(|_| EnvFilter::new("safe_invest=info,warn"));
 
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    let installed = if stderr_only {
-        builder.with_writer(std::io::stderr).try_init()
-    } else {
-        builder.try_init()
-    };
-    let _ = installed;
+    // A journal that cannot be opened — a read-only disk, a directory taken by
+    // a file — is a diagnostic lost, never a launch refused.
+    let journal = journal::Handle::open(&paths_for(options)).ok();
+    if journal.is_none() {
+        errln!("Journal indisponible : les messages n'iront qu'à la console.");
+    }
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        // No ANSI: the journal is read as a text file, and escape codes turn it
+        // into something nobody can quote in a bug report.
+        .with_ansi(false)
+        .with_writer(move || Sink {
+            journal: journal.clone(),
+        })
+        .try_init();
+
+    tracing::info!(version = safe_invest_core::VERSION, "Safe Invest démarre");
 }
 
 /// Reattaches the process to the terminal that launched it.
@@ -215,7 +313,46 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
         }
     );
 
+    outln!();
+    outln!("Serveur MCP");
+    outln!("  stdio          : toujours disponible (`safe-invest mcp`)");
+    outln!(
+        "  port local     : {}",
+        if settings.mcp_http_enabled {
+            format!("activé sur 127.0.0.1:{}", settings.mcp_http_port)
+        } else {
+            "désactivé".to_owned()
+        }
+    );
+    // Whether a token exists, never the token. A diagnostic gets pasted into
+    // bug reports, and this one is a credential like any other.
+    outln!(
+        "  jeton          : {}",
+        if context.settings_service().mcp_token(&settings).is_some() {
+            "défini"
+        } else {
+            "aucun (créé au premier démarrage du port)"
+        }
+    );
+
+    outln!();
+    outln!("Journal");
+    outln!("  fichier        : {}", journal::file(paths).display());
+    outln!("  taille         : {}", human_size(journal::size(paths)));
+    outln!("  lignes gardées : {}", journal::tail(paths, 100_000).len());
+
     Ok(())
+}
+
+/// Bytes, said the way a person reads them.
+fn human_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} o")
+    } else if bytes < 1024 * 1024 {
+        format!("{} ko", bytes / 1024)
+    } else {
+        format!("{} Mo", bytes / (1024 * 1024))
+    }
 }
 
 fn executable_path() -> String {
@@ -317,5 +454,50 @@ mod tests {
     fn the_usage_text_shows_how_to_wire_an_ai_client() {
         assert!(USAGE.contains("\"command\": \"safe-invest\""));
         assert!(USAGE.contains("\"args\": [\"mcp\"]"));
+    }
+
+    /// The number this feature was asked for. It is not a port, and the error
+    /// must say that rather than truncating it into one that happens to fit.
+    #[test]
+    fn a_number_too_large_for_a_port_is_refused_by_name() {
+        let error = parse_port("98000").unwrap_err();
+        assert!(error.contains("98000"), "{error}");
+        assert!(error.contains("65535"), "{error}");
+    }
+
+    #[test]
+    fn reserved_and_nonsense_ports_are_refused() {
+        assert!(parse_port("0").is_err());
+        assert!(parse_port("80").is_err());
+        assert!(parse_port("1023").is_err());
+        assert!(parse_port("").is_err());
+        assert!(parse_port("neuf-mille").is_err());
+        assert!(parse_port("-1").is_err());
+    }
+
+    #[test]
+    fn a_usable_port_is_accepted_with_or_without_spaces() {
+        assert_eq!(parse_port("9800"), Ok(9800));
+        assert_eq!(parse_port("  1024 "), Ok(1024));
+        assert_eq!(parse_port("65535"), Ok(65535));
+    }
+
+    #[test]
+    fn asking_for_a_port_implies_serving_on_one() {
+        let (command, options) =
+            parse(["mcp".to_owned(), "--port".to_owned(), "1234".to_owned()]).unwrap();
+        assert_eq!(command, Command::Mcp);
+        assert!(options.http, "--port doit impliquer --http");
+        assert_eq!(options.port, Some(1234));
+    }
+
+    #[test]
+    fn stdio_stays_the_default_for_the_mcp_subcommand() {
+        let (command, options) = parse(["mcp".to_owned()]).unwrap();
+        assert_eq!(command, Command::Mcp);
+        assert!(
+            !options.http,
+            "un port ne s'ouvre pas sans qu'on le demande"
+        );
     }
 }

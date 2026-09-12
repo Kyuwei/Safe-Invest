@@ -1301,3 +1301,30 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
 
 .badge-label { font-size: 0.88rem; font-weight: 600; }
 .badge-note { font-size: 0.78rem; line-height: 1.4; color: var(--text-soft); text-wrap: pretty; }
+
+/* --------------------------------------------------------- port MCP */
+
+/* Flex rather than grid, because the status line below spans the whole row: in
+   a grid its width would be shared out among the tracks above it, pushing the
+   button away from the field it belongs to. */
+.mcp-port { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 12px; }
+/* An <input> claims twenty characters' worth of room whatever it holds. A port
+   is five digits at most, and that is all the box needs to be. */
+.mcp-port input { width: 8ch; min-width: 0; }
+.mcp-status { flex: 0 0 100%; margin: 0; font-size: 0.8rem; color: var(--text-soft); }
+.mcp-status.is-listening { color: var(--up-ink); font-weight: 600; }
+.mcp-status.is-broken { color: var(--down-ink); font-weight: 600; text-wrap: pretty; }
+.mcp-actions, .button-row { display: flex; flex-wrap: wrap; gap: 9px; }
+
+/* ----------------------------------------------------------- journal */
+
+/* Tall enough to show a stack trace's worth of context, short enough that the
+   panel below it stays reachable without scrolling past a megabyte. */
+.log-view {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
