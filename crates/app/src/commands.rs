@@ -15,8 +15,7 @@ use safe_invest_core::model::{AssetKind, PlayerKind};
 use safe_invest_core::settings::AppSettings;
 use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
 use safe_invest_service::{
-    BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, SetGoalRequest, TradeSizing,
-    view,
+    BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, TradeSizing, view,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -89,7 +88,6 @@ pub struct AppInfo {
     /// configuration block that is already correct rather than a placeholder.
     pub exe_path: Option<String>,
     pub demo_mode: bool,
-    pub current_game_id: Option<String>,
     /// The tools an AI would be given. Read from the MCP crate, never retyped.
     pub mcp_tools: Vec<String>,
 }
@@ -103,7 +101,6 @@ pub fn app_info(context: tauri::State<'_, Context>) -> AppInfo {
             .ok()
             .map(|path| path.display().to_string()),
         demo_mode: context.settings().force_simulated_mode,
-        current_game_id: context.current_game_id().map(|id| id.to_string()),
         mcp_tools: safe_invest_mcp::server::TOOL_NAMES
             .iter()
             .map(|name| (*name).to_owned())
@@ -230,9 +227,14 @@ fn parse_deadline(value: &str) -> Answer<jiff::Timestamp> {
         })
 }
 
+/// Checks that a game can be opened before the page switches to it.
+///
+/// Nothing is recorded: the page keeps the id and names it in every call. The
+/// remembered "current game" belongs to the MCP side, and opening a game here
+/// must not move an AI that is playing another one.
 #[tauri::command]
 pub fn open_game(context: tauri::State<'_, Context>, game_id: String) -> Answer<()> {
-    context.open_game(parse_id(&game_id)?)?;
+    context.load_game(parse_id(&game_id)?)?;
     Ok(())
 }
 
@@ -242,28 +244,16 @@ pub fn delete_game(context: tauri::State<'_, Context>, game_id: String) -> Answe
     Ok(())
 }
 
-#[tauri::command]
-pub fn set_goal(
-    context: tauri::State<'_, Context>,
-    target_amount: String,
-    deadline: String,
-) -> Answer<()> {
-    context.set_goal(
-        &SetGoalRequest {
-            game_id: None,
-            target_amount: parse_amount(&target_amount)?,
-            deadline: parse_deadline(&deadline)?,
-        },
-        jiff::Timestamp::now(),
-    )?;
-    Ok(())
-}
-
 // -------------------------------------------------------------- dashboard
 
 #[tauri::command]
-pub async fn dashboard(context: tauri::State<'_, Context>) -> Answer<DashboardView> {
-    let report = context.portfolio(None, jiff::Timestamp::now()).await?;
+pub async fn dashboard(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+) -> Answer<DashboardView> {
+    let report = context
+        .portfolio(parse_id(&game_id)?, jiff::Timestamp::now())
+        .await?;
     Ok(view::dashboard(&report))
 }
 
@@ -284,9 +274,14 @@ pub struct HistoryView {
 }
 
 #[tauri::command]
-pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answer<HistoryView> {
-    let session = context.load_game(None)?;
-    let trades = context.trade_history(None, limit)?;
+pub fn history(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+    limit: Option<usize>,
+) -> Answer<HistoryView> {
+    let id = parse_id(&game_id)?;
+    let session = context.load_game(id)?;
+    let trades = context.trade_history(id, limit)?;
 
     let volume = trades
         .iter()
@@ -308,29 +303,46 @@ pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answ
     })
 }
 
-/// Ends the current game at the value it has right now.
+/// Ends the game at the value it has right now.
+///
+/// Allowed on an AI game too: the person watching is the one supervising it,
+/// and stopping an AI that has gone astray is theirs to decide.
 #[tauri::command]
-pub async fn end_game(context: tauri::State<'_, Context>) -> Answer<DashboardView> {
+pub async fn end_game(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+) -> Answer<DashboardView> {
+    let id = parse_id(&game_id)?;
     let now = jiff::Timestamp::now();
-    context.end_game(None, now).await?;
-    Ok(view::dashboard(&context.portfolio(None, now).await?))
+    context.end_game(id, PlayerKind::Human, now).await?;
+    Ok(view::dashboard(&context.portfolio(id, now).await?))
 }
 
 /// What a finished game amounted to. Refuses a game still in play.
 #[tauri::command]
-pub fn summary(context: tauri::State<'_, Context>) -> Answer<view::SummaryView> {
-    let session = context.load_game(None)?;
-    let summary = context.summary(None)?;
+pub fn summary(context: tauri::State<'_, Context>, game_id: String) -> Answer<view::SummaryView> {
+    let id = parse_id(&game_id)?;
+    let session = context.load_game(id)?;
+    let summary = context.summary(id)?;
     Ok(view::summary(&session, &summary))
 }
 
 // ----------------------------------------------------------------- market
+
+/// The currency a screen quotes in: the open game's, else the default.
+fn currency_of(context: &Context, game_id: Option<&str>) -> Answer<String> {
+    match game_id.filter(|id| !id.trim().is_empty()) {
+        Some(id) => Ok(context.load_game(parse_id(id)?)?.currency),
+        None => Ok(context.settings().default_currency),
+    }
+}
 
 #[tauri::command]
 pub async fn market(
     context: tauri::State<'_, Context>,
     query: String,
     kind: Option<String>,
+    game_id: Option<String>,
 ) -> Answer<Vec<MarketRow>> {
     let kind = kind
         .as_deref()
@@ -338,9 +350,7 @@ pub async fn market(
         .map(parse_kind)
         .transpose()?;
 
-    let currency = context
-        .load_game(None)
-        .map_or_else(|_| context.settings().default_currency, |g| g.currency);
+    let currency = currency_of(&context, game_id.as_deref())?;
 
     let assets = if query.trim().is_empty() {
         context.popular_assets(kind)
@@ -366,9 +376,15 @@ pub async fn asset(
     symbol: String,
     kind: String,
     days: Option<u16>,
+    game_id: Option<String>,
 ) -> Answer<AssetView> {
+    let game = game_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .map(parse_id)
+        .transpose()?;
     let report = context
-        .asset_report(parse_kind(&kind)?, &symbol, days.unwrap_or(30))
+        .asset_report(parse_kind(&kind)?, &symbol, days.unwrap_or(30), game)
         .await?;
     Ok(view::asset_view(&report))
 }
@@ -388,14 +404,13 @@ pub async fn price_history(
     symbol: String,
     kind: String,
     days: Option<u16>,
+    game_id: Option<String>,
 ) -> Answer<Sparkline> {
     use rust_decimal::prelude::ToPrimitive;
 
     let kind = parse_kind(&kind)?;
     let asset = context.resolve_asset(kind, &symbol)?;
-    let currency = context
-        .load_game(None)
-        .map_or_else(|_| context.settings().default_currency, |g| g.currency);
+    let currency = currency_of(&context, game_id.as_deref())?;
 
     let points = context
         .price_history(&asset, days.unwrap_or(30).clamp(1, 365), &currency)
@@ -413,6 +428,7 @@ pub async fn price_history(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderArgs {
+    pub game_id: String,
     pub symbol: String,
     pub kind: String,
     pub quantity: Option<String>,
@@ -444,12 +460,14 @@ impl OrderArgs {
 #[tauri::command]
 pub async fn buy(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<TradeRow> {
     let sizing = args.sizing()?;
-    let session = context.load_game(None)?;
+    let id = parse_id(&args.game_id)?;
+    let session = context.load_game(id)?;
 
     let trade = context
         .buy(
             BuyRequest {
-                game_id: None,
+                game_id: id,
+                actor: PlayerKind::Human,
                 symbol: args.symbol,
                 kind: parse_kind(&args.kind)?,
                 sizing,
@@ -465,12 +483,14 @@ pub async fn buy(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<
 #[tauri::command]
 pub async fn sell(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<TradeRow> {
     let sizing = args.sizing()?;
-    let session = context.load_game(None)?;
+    let id = parse_id(&args.game_id)?;
+    let session = context.load_game(id)?;
 
     let trade = context
         .sell(
             SellRequest {
-                game_id: None,
+                game_id: id,
+                actor: PlayerKind::Human,
                 symbol: args.symbol,
                 kind: parse_kind(&args.kind)?,
                 sizing,

@@ -43,9 +43,10 @@ pub enum TradeAmount {
     All,
 }
 
-/// Buys into `session` and returns the recorded trade.
+/// Buys into `session` on behalf of `actor` and returns the recorded trade.
 pub fn buy(
     session: &mut GameSession,
+    actor: PlayerKind,
     asset: &Asset,
     quote: &Quote,
     amount: TradeAmount,
@@ -53,8 +54,9 @@ pub fn buy(
     now: Timestamp,
 ) -> Result<Trade> {
     validate_open(session)?;
+    validate_actor(session, actor)?;
     validate_quote(session, asset, quote)?;
-    let rationale = validate_rationale(session, rationale)?;
+    let rationale = validate_rationale(actor, rationale)?;
     let fee_rate = fee_rate(session)?;
 
     let units = match amount {
@@ -123,7 +125,7 @@ pub fn buy(
         total,
         realized_pnl: None,
         rationale,
-        actor_kind: session.player_kind,
+        actor_kind: actor,
         quote_source_id: Some(quote.source_id.clone()),
         quote_was_simulated: quote.is_simulated,
     };
@@ -131,9 +133,10 @@ pub fn buy(
     Ok(trade)
 }
 
-/// Sells out of `session` and returns the recorded trade.
+/// Sells out of `session` on behalf of `actor` and returns the recorded trade.
 pub fn sell(
     session: &mut GameSession,
+    actor: PlayerKind,
     asset: &Asset,
     quote: &Quote,
     amount: TradeAmount,
@@ -141,8 +144,9 @@ pub fn sell(
     now: Timestamp,
 ) -> Result<Trade> {
     validate_open(session)?;
+    validate_actor(session, actor)?;
     validate_quote(session, asset, quote)?;
-    let rationale = validate_rationale(session, rationale)?;
+    let rationale = validate_rationale(actor, rationale)?;
     let fee_rate = fee_rate(session)?;
 
     let held = session
@@ -209,7 +213,7 @@ pub fn sell(
         total: proceeds,
         realized_pnl: Some(realized),
         rationale,
-        actor_kind: session.player_kind,
+        actor_kind: actor,
         quote_source_id: Some(quote.source_id.clone()),
         quote_was_simulated: quote.is_simulated,
     };
@@ -260,6 +264,26 @@ fn require_positive_amount(amount: Decimal) -> Result<Decimal> {
     Ok(amount)
 }
 
+/// Refuses an order from someone the game does not belong to.
+///
+/// A game is played by a person or by an AI, never by both. Were it otherwise,
+/// the history an AI game exists to produce — a chain of justified decisions —
+/// could have a click slipped into it, and a person's portfolio could be
+/// traded by a client they forgot was connected. The window only watches an
+/// AI game, and an AI only reads a person's.
+pub fn validate_actor(session: &GameSession, actor: PlayerKind) -> Result<()> {
+    match (session.player_kind, actor) {
+        (PlayerKind::Ai, PlayerKind::Human) => Err(TradeError::rejected(
+            "Cette partie est pilotée par une IA : la fenêtre ne fait que l'observer.",
+        )),
+        (PlayerKind::Human, PlayerKind::Ai) => Err(TradeError::rejected(
+            "Cette partie appartient à une personne : une IA peut la consulter, pas y passer d'ordre. \
+             Créez une partie avec player_kind=\"ai\" pour jouer.",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Refuses to touch a game that is over.
 ///
 /// The summary quotes a final value taken at the moment the game stopped. One
@@ -300,13 +324,13 @@ fn validate_quote(session: &GameSession, asset: &Asset, quote: &Quote) -> Result
 
 /// An AI has to say why it trades. This is the whole point of AI mode: the
 /// history must read as a chain of justified decisions.
-fn validate_rationale(session: &GameSession, rationale: Option<&str>) -> Result<Option<String>> {
+fn validate_rationale(actor: PlayerKind, rationale: Option<&str>) -> Result<Option<String>> {
     let trimmed = rationale
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    if session.player_kind == PlayerKind::Ai && trimmed.is_none() {
+    if actor == PlayerKind::Ai && trimmed.is_none() {
         return Err(TradeError::rejected(
             "En partie IA, chaque opération doit être accompagnée d'une justification (rationale).",
         ));

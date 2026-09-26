@@ -49,7 +49,6 @@ pub fn run(options: &Options) -> anyhow::Result<()> {
             crate::commands::create_game,
             crate::commands::open_game,
             crate::commands::delete_game,
-            crate::commands::set_goal,
             crate::commands::dashboard,
             crate::commands::end_game,
             crate::commands::summary,

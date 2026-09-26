@@ -47,18 +47,22 @@ export const api = {
   createGame: (args) => call("create_game", { args }),
   openGame: (gameId) => call("open_game", { gameId }),
   deleteGame: (gameId) => call("delete_game", { gameId }),
-  setGoal: (targetAmount, deadline) => call("set_goal", { targetAmount, deadline }),
 
-  dashboard: () => call("dashboard"),
-  endGame: () => call("end_game"),
-  summary: () => call("summary"),
-  history: (limit) => call("history", { limit: limit ?? null }),
-  market: (query, kind) => call("market", { query, kind }),
-  asset: (symbol, kind, days) => call("asset", { symbol, kind, days: days ?? null }),
-  priceHistory: (symbol, kind, days) => call("price_history", { symbol, kind, days }),
+  // Every call about a game names it. The window never relies on a "current
+  // game" kept on disk: that one belongs to the AI, and sharing it is how a
+  // click could once land in the game an AI had just opened.
+  dashboard: (gameId) => call("dashboard", { gameId }),
+  endGame: (gameId) => call("end_game", { gameId }),
+  summary: (gameId) => call("summary", { gameId }),
+  history: (gameId, limit) => call("history", { gameId, limit: limit ?? null }),
+  market: (query, kind, gameId) => call("market", { query, kind, gameId: gameId ?? null }),
+  asset: (symbol, kind, days, gameId) =>
+    call("asset", { symbol, kind, days: days ?? null, gameId: gameId ?? null }),
+  priceHistory: (symbol, kind, days, gameId) =>
+    call("price_history", { symbol, kind, days, gameId: gameId ?? null }),
 
-  buy: (args) => call("buy", { args }),
-  sell: (args) => call("sell", { args }),
+  buy: (gameId, args) => call("buy", { args: { ...args, gameId } }),
+  sell: (gameId, args) => call("sell", { args: { ...args, gameId } }),
 
   getSettings: () => call("get_settings"),
   saveSettings: (settings) => call("save_settings", { settings }),

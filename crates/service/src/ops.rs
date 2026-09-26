@@ -31,7 +31,9 @@ pub struct NewGameRequest {
 
 #[derive(Debug, Clone)]
 pub struct SetGoalRequest {
-    pub game_id: Option<Uuid>,
+    pub game_id: Uuid,
+    /// Who asks. Only the player a game belongs to may change its goal.
+    pub actor: PlayerKind,
     pub target_amount: Decimal,
     pub deadline: Timestamp,
 }
@@ -78,7 +80,9 @@ impl From<TradeSizing> for TradeAmount {
 
 #[derive(Debug, Clone)]
 pub struct BuyRequest {
-    pub game_id: Option<Uuid>,
+    pub game_id: Uuid,
+    /// Who places the order: the window trades as a person, MCP as an AI.
+    pub actor: PlayerKind,
     pub symbol: String,
     pub kind: AssetKind,
     pub sizing: TradeSizing,
@@ -87,7 +91,9 @@ pub struct BuyRequest {
 
 #[derive(Debug, Clone)]
 pub struct SellRequest {
-    pub game_id: Option<Uuid>,
+    pub game_id: Uuid,
+    /// Who places the order: the window trades as a person, MCP as an AI.
+    pub actor: PlayerKind,
     pub symbol: String,
     pub kind: AssetKind,
     pub sizing: TradeSizing,
@@ -126,19 +132,23 @@ impl Context {
         self.store().list()
     }
 
-    pub fn current_game_id(&self) -> Option<Uuid> {
+    /// The game an AI last opened, as remembered on disk between two runs of
+    /// the MCP server.
+    ///
+    /// Only the MCP side reads or writes it. The window names the game it shows
+    /// in every call instead: were the two to share one "current game", a
+    /// person opening their own portfolio would silently move the AI onto it,
+    /// and the AI opening its game would send the person's clicks there.
+    pub fn remembered_ai_game(&self) -> Option<Uuid> {
         self.store().current_game()
     }
 
-    /// Resolves the game to act on: the one given, else the current one.
-    pub fn resolve_game_id(&self, requested: Option<Uuid>) -> ServiceResult<Uuid> {
-        requested
-            .or_else(|| self.store().current_game())
-            .ok_or(ServiceError::NoCurrentGame)
+    /// Records the game an AI is now playing, for the next run to resume.
+    pub fn remember_ai_game(&self, id: Uuid) -> ServiceResult<()> {
+        Ok(self.store().set_current_game(Some(id))?)
     }
 
-    pub fn load_game(&self, id: Option<Uuid>) -> ServiceResult<GameSession> {
-        let id = self.resolve_game_id(id)?;
+    pub fn load_game(&self, id: Uuid) -> ServiceResult<GameSession> {
         Ok(self.store().load(id)?)
     }
 
@@ -174,14 +184,6 @@ impl Context {
         )?;
 
         self.store().save(&session)?;
-        self.store().set_current_game(Some(session.id))?;
-        Ok(session)
-    }
-
-    /// Makes `id` the game every other call acts on by default.
-    pub fn open_game(&self, id: Uuid) -> ServiceResult<GameSession> {
-        let session = self.store().load(id)?;
-        self.store().set_current_game(Some(id))?;
         Ok(session)
     }
 
@@ -190,9 +192,8 @@ impl Context {
     }
 
     pub fn set_goal(&self, request: &SetGoalRequest, now: Timestamp) -> ServiceResult<GameSession> {
-        let id = self.resolve_game_id(request.game_id)?;
-
-        self.store().mutate(id, |session| {
+        self.store().mutate(request.game_id, |session| {
+            engine::validate_actor(session, request.actor)?;
             if request.target_amount <= session.starting_cash {
                 return Err(ServiceError::rejected(
                     "Le montant à atteindre doit dépasser le capital de départ.",
@@ -215,11 +216,7 @@ impl Context {
     // --------------------------------------------------------- portfolio
 
     /// Values a game at the current market.
-    pub async fn portfolio(
-        &self,
-        id: Option<Uuid>,
-        now: Timestamp,
-    ) -> ServiceResult<PortfolioReport> {
+    pub async fn portfolio(&self, id: Uuid, now: Timestamp) -> ServiceResult<PortfolioReport> {
         let session = self.load_game(id)?;
         let assets: Vec<Asset> = session.holdings.iter().map(|h| h.asset.clone()).collect();
 
@@ -283,19 +280,31 @@ impl Context {
     /// than whatever the last refresh happened to leave behind. Ending a game
     /// that is already over changes nothing and is not an error — two clicks
     /// should not produce two different results.
-    pub async fn end_game(&self, id: Option<Uuid>, now: Timestamp) -> ServiceResult<GameSession> {
+    ///
+    /// A person may stop an AI game — they are the one supervising it — but an
+    /// AI may not stop a person's.
+    pub async fn end_game(
+        &self,
+        id: Uuid,
+        actor: PlayerKind,
+        now: Timestamp,
+    ) -> ServiceResult<GameSession> {
+        let owner = self.load_game(id)?;
+        if actor == PlayerKind::Ai {
+            engine::validate_actor(&owner, actor)?;
+        }
+
         let report = self.portfolio(id, now).await?;
         let value = report.snapshot.total_value;
-        let game_id = report.session.id;
 
-        self.store().mutate(game_id, |session| {
+        self.store().mutate(id, |session| {
             session.finish(EndReason::Stopped, value, now);
             Ok::<_, ServiceError>(session.clone())
         })
     }
 
     /// What a finished game amounted to. Refuses a game still in play.
-    pub fn summary(&self, id: Option<Uuid>) -> ServiceResult<safe_invest_core::summary::Summary> {
+    pub fn summary(&self, id: Uuid) -> ServiceResult<safe_invest_core::summary::Summary> {
         let session = self.load_game(id)?;
         safe_invest_core::summary::of(&session).ok_or_else(|| {
             ServiceError::rejected(
@@ -306,18 +315,14 @@ impl Context {
 
     pub async fn goal_progress(
         &self,
-        id: Option<Uuid>,
+        id: Uuid,
         now: Timestamp,
     ) -> ServiceResult<Option<GoalProgress>> {
         Ok(self.portfolio(id, now).await?.goal)
     }
 
     /// Trade history, newest first, capped at `limit`.
-    pub fn trade_history(
-        &self,
-        id: Option<Uuid>,
-        limit: Option<usize>,
-    ) -> ServiceResult<Vec<Trade>> {
+    pub fn trade_history(&self, id: Uuid, limit: Option<usize>) -> ServiceResult<Vec<Trade>> {
         let session = self.load_game(id)?;
         let mut trades = session.trades;
         trades.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -343,15 +348,17 @@ impl Context {
         self.market().await.history(asset, days, currency).await
     }
 
-    /// Everything needed to draw one asset's page.
+    /// Everything needed to draw one asset's page, seen from `game` when one
+    /// is open: its currency, what it holds, what it can still spend.
     pub async fn asset_report(
         &self,
         kind: AssetKind,
         symbol: &str,
         days: u16,
+        game: Option<Uuid>,
     ) -> ServiceResult<AssetReport> {
         let asset = self.resolve_asset(kind, symbol)?;
-        let session = self.load_game(None).ok();
+        let session = game.map(|id| self.load_game(id)).transpose()?;
 
         let currency = session
             .as_ref()
@@ -404,14 +411,18 @@ impl Context {
     // ----------------------------------------------------------- trading
 
     pub async fn buy(&self, request: BuyRequest, now: Timestamp) -> ServiceResult<Trade> {
-        let id = self.resolve_game_id(request.game_id)?;
+        let id = request.game_id;
         let session = self.store().load(id)?;
+        // Checked before the quote as well as inside the engine: an order that
+        // will be refused should not spend a request of somebody's free tier.
+        engine::validate_actor(&session, request.actor)?;
         let asset = self.resolve_asset(request.kind, &request.symbol)?;
         let quote = self.quote_for(&asset, &session.currency).await?;
 
         self.store().mutate(id, |session| {
             engine::buy(
                 session,
+                request.actor,
                 &asset,
                 &quote,
                 request.sizing.into(),
@@ -423,14 +434,16 @@ impl Context {
     }
 
     pub async fn sell(&self, request: SellRequest, now: Timestamp) -> ServiceResult<Trade> {
-        let id = self.resolve_game_id(request.game_id)?;
+        let id = request.game_id;
         let session = self.store().load(id)?;
+        engine::validate_actor(&session, request.actor)?;
         let asset = self.resolve_asset(request.kind, &request.symbol)?;
         let quote = self.quote_for(&asset, &session.currency).await?;
 
         self.store().mutate(id, |session| {
             engine::sell(
                 session,
+                request.actor,
                 &asset,
                 &quote,
                 request.sizing.into(),

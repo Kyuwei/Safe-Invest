@@ -9,7 +9,7 @@ use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{ErrorData, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
-use safe_invest_core::model::AssetKind;
+use safe_invest_core::model::{AssetKind, PlayerKind};
 use safe_invest_service::{
     BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, SetGoalRequest, TradeSizing,
     view,
@@ -17,6 +17,7 @@ use safe_invest_service::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 /// What the client is told the server is for.
@@ -38,6 +39,12 @@ Tout cours porte `sourceId` et `isSimulated`. Ne présentez jamais un cours simu
 #[derive(Clone)]
 pub struct SafeInvestServer {
     context: Context,
+    /// The game this connection acts on when a call names none.
+    ///
+    /// Held per server, which is per client: one per stdio process, one per
+    /// HTTP session. Two AIs connected at once each keep their own, and the
+    /// window — which always names the game it shows — never moves it.
+    current: Arc<Mutex<Option<Uuid>>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -210,8 +217,12 @@ pub const TOOL_NAMES: &[&str] = &[
 )]
 impl SafeInvestServer {
     pub fn new(context: Context) -> Self {
+        // Resume where the last run left off, so a client that restarts the
+        // server between two conversations finds its game again.
+        let remembered = context.remembered_ai_game();
         Self {
             context,
+            current: Arc::new(Mutex::new(remembered)),
             tool_router: Self::tool_router(),
         }
     }
@@ -222,7 +233,7 @@ impl SafeInvestServer {
     )]
     fn list_games(&self) -> Result<Json<Value>, ErrorData> {
         let games = self.context.list_games();
-        let current = self.context.current_game_id().map(|id| id.to_string());
+        let current = self.current_game().map(|id| id.to_string());
 
         Ok(Json(json!({
             "currentGameId": current,
@@ -268,6 +279,7 @@ impl SafeInvestServer {
                 jiff::Timestamp::now(),
             )
             .map_err(|e| to_error(&e))?;
+        self.make_current(session.id);
 
         Ok(Json(json!({
             "gameId": session.id.to_string(),
@@ -289,7 +301,8 @@ impl SafeInvestServer {
         Parameters(args): Parameters<OpenGameArgs>,
     ) -> Result<Json<Value>, ErrorData> {
         let id = parse_uuid(&args.game_id)?;
-        let session = self.context.open_game(id).map_err(|e| to_error(&e))?;
+        let session = self.context.load_game(id).map_err(|e| to_error(&e))?;
+        self.make_current(id);
 
         Ok(Json(json!({
             "gameId": session.id.to_string(),
@@ -310,7 +323,7 @@ impl SafeInvestServer {
         &self,
         Parameters(args): Parameters<GameRef>,
     ) -> Result<Json<Value>, ErrorData> {
-        let id = optional_uuid(args.game_id.as_deref())?;
+        let id = self.game(args.game_id.as_deref())?;
         let report = self
             .context
             .portfolio(id, jiff::Timestamp::now())
@@ -369,7 +382,8 @@ impl SafeInvestServer {
             .context
             .set_goal(
                 &SetGoalRequest {
-                    game_id: optional_uuid(args.game_id.as_deref())?,
+                    game_id: self.game(args.game_id.as_deref())?,
+                    actor: PlayerKind::Ai,
                     target_amount: args.target_amount.0,
                     deadline: args.deadline.0,
                 },
@@ -394,7 +408,7 @@ impl SafeInvestServer {
         &self,
         Parameters(args): Parameters<GameRef>,
     ) -> Result<Json<Value>, ErrorData> {
-        let id = optional_uuid(args.game_id.as_deref())?;
+        let id = self.game(args.game_id.as_deref())?;
         let progress = self
             .context
             .goal_progress(id, jiff::Timestamp::now())
@@ -415,10 +429,10 @@ impl SafeInvestServer {
         &self,
         Parameters(args): Parameters<GameRef>,
     ) -> Result<Json<Value>, ErrorData> {
-        let id = optional_uuid(args.game_id.as_deref())?;
+        let id = self.game(args.game_id.as_deref())?;
         let session = self
             .context
-            .end_game(id, jiff::Timestamp::now())
+            .end_game(id, PlayerKind::Ai, jiff::Timestamp::now())
             .await
             .map_err(|e| to_error(&e))?;
 
@@ -442,7 +456,7 @@ impl SafeInvestServer {
         description = "Bilan d'une partie terminée : résultat, durée, meilleur et pire trade, part des ventes gagnantes, et ce que le résultat vaut ramené à l'année. Refuse une partie encore en cours."
     )]
     fn get_summary(&self, Parameters(args): Parameters<GameRef>) -> Result<Json<Value>, ErrorData> {
-        let id = optional_uuid(args.game_id.as_deref())?;
+        let id = self.game(args.game_id.as_deref())?;
         let summary = self.context.summary(id).map_err(|e| to_error(&e))?;
         let session = self.context.load_game(id).map_err(|e| to_error(&e))?;
 
@@ -459,7 +473,7 @@ impl SafeInvestServer {
         &self,
         Parameters(args): Parameters<HistoryArgs>,
     ) -> Result<Json<Value>, ErrorData> {
-        let id = optional_uuid(args.game_id.as_deref())?;
+        let id = self.game(args.game_id.as_deref())?;
         let trades = self
             .context
             .trade_history(id, args.limit)
@@ -626,7 +640,8 @@ impl SafeInvestServer {
             .context
             .buy(
                 BuyRequest {
-                    game_id: optional_uuid(args.game_id.as_deref())?,
+                    game_id: self.game(args.game_id.as_deref())?,
+                    actor: PlayerKind::Ai,
                     symbol: args.symbol,
                     kind: args.kind.into(),
                     sizing,
@@ -656,7 +671,8 @@ impl SafeInvestServer {
             .context
             .sell(
                 SellRequest {
-                    game_id: optional_uuid(args.game_id.as_deref())?,
+                    game_id: self.game(args.game_id.as_deref())?,
+                    actor: PlayerKind::Ai,
                     symbol: args.symbol,
                     kind: args.kind.into(),
                     sizing,
@@ -675,8 +691,38 @@ impl SafeInvestServer {
     fn currency_for(&self, requested: Option<&str>) -> String {
         requested
             .map(str::to_uppercase)
-            .or_else(|| self.context.load_game(None).ok().map(|g| g.currency))
+            .or_else(|| {
+                self.current_game()
+                    .and_then(|id| self.context.load_game(id).ok())
+                    .map(|g| g.currency)
+            })
             .unwrap_or_else(|| self.context.settings().default_currency)
+    }
+
+    fn current_game(&self) -> Option<Uuid> {
+        self.current.lock().ok().and_then(|current| *current)
+    }
+
+    /// Makes `id` this connection's game, and remembers it for the next run.
+    fn make_current(&self, id: Uuid) {
+        if let Ok(mut current) = self.current.lock() {
+            *current = Some(id);
+        }
+        // Remembering is a convenience for the next run; failing to write it
+        // costs nothing now, so it is logged rather than refused.
+        if let Err(error) = self.context.remember_ai_game(id) {
+            tracing::warn!(%error, "partie courante de l'IA non mémorisée");
+        }
+    }
+
+    /// The game a call acts on: the one it names, else this connection's.
+    fn game(&self, requested: Option<&str>) -> Result<Uuid, ErrorData> {
+        match optional_uuid(requested)? {
+            Some(id) => Ok(id),
+            None => self
+                .current_game()
+                .ok_or_else(|| to_error(&ServiceError::NoCurrentGame)),
+        }
     }
 }
 

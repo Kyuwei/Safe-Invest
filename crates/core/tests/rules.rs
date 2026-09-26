@@ -176,6 +176,7 @@ fn buying_by_quantity_moves_exactly_the_expected_cash() {
 
     let trade = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "50000"),
         TradeAmount::Units(d("0.1")),
@@ -200,6 +201,7 @@ fn buying_by_amount_never_overspends_even_with_fees() {
 
     let trade = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "37777.77"),
         TradeAmount::Cash(d("1000")),
@@ -224,6 +226,7 @@ fn buying_more_than_the_cash_allows_is_refused() {
 
     let error = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "50000"),
         TradeAmount::Units(d("1")),
@@ -245,6 +248,7 @@ fn two_buys_average_their_cost() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("10")),
@@ -254,6 +258,7 @@ fn two_buys_average_their_cost() {
     .unwrap();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "200"),
         TradeAmount::Units(d("10")),
@@ -274,6 +279,7 @@ fn selling_everything_closes_the_position_completely() {
     let asset = btc();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "3333.33"),
         TradeAmount::Cash(d("1000")),
@@ -284,6 +290,7 @@ fn selling_everything_closes_the_position_completely() {
 
     engine::sell(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "3333.33"),
         TradeAmount::All,
@@ -305,6 +312,7 @@ fn selling_more_than_is_held_is_refused() {
     let asset = btc();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("1")),
@@ -315,6 +323,7 @@ fn selling_more_than_is_held_is_refused() {
 
     let error = engine::sell(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("2")),
@@ -334,6 +343,7 @@ fn selling_something_never_bought_is_refused() {
 
     let error = engine::sell(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::All,
@@ -352,6 +362,7 @@ fn a_profitable_round_trip_books_the_gain_minus_fees() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("10")),
@@ -361,6 +372,7 @@ fn a_profitable_round_trip_books_the_gain_minus_fees() {
     .unwrap();
     let sale = engine::sell(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "150"),
         TradeAmount::All,
@@ -382,6 +394,7 @@ fn a_round_trip_at_a_flat_price_with_no_fees_returns_the_exact_starting_cash() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "137.77"),
         TradeAmount::Cash(d("5000")),
@@ -391,6 +404,7 @@ fn a_round_trip_at_a_flat_price_with_no_fees_returns_the_exact_starting_cash() {
     .unwrap();
     engine::sell(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "137.77"),
         TradeAmount::All,
@@ -415,6 +429,7 @@ fn an_ai_cannot_trade_without_saying_why() {
 
     let error = engine::buy(
         &mut session,
+        PlayerKind::Ai,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("1")),
@@ -426,6 +441,7 @@ fn an_ai_cannot_trade_without_saying_why() {
 
     let blank = engine::buy(
         &mut session,
+        PlayerKind::Ai,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("1")),
@@ -448,6 +464,7 @@ fn an_ai_trade_keeps_its_justification_in_the_history() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Ai,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("1")),
@@ -464,12 +481,82 @@ fn an_ai_trade_keeps_its_justification_in_the_history() {
     assert_eq!(session.trades[0].actor_kind, PlayerKind::Ai);
 }
 
+/// The window watches an AI game; a click must not be able to slip a trade
+/// into the history the AI is meant to be writing.
+#[test]
+fn a_person_cannot_trade_in_an_ai_game() {
+    let mut session = game(PlayerKind::Ai, "10000", "0");
+    let asset = btc();
+
+    let error = engine::buy(
+        &mut session,
+        PlayerKind::Human,
+        &asset,
+        &quote(&asset, "100"),
+        TradeAmount::Units(d("1")),
+        Some("un clic"),
+        now(),
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("IA"), "{error}");
+    assert!(session.trades.is_empty());
+    assert_eq!(session.cash, d("10000"));
+}
+
+/// A person's portfolio is theirs: a connected AI may read it, not trade it.
+#[test]
+fn an_ai_cannot_trade_in_a_persons_game() {
+    let mut session = game(PlayerKind::Human, "10000", "0");
+    let asset = btc();
+    engine::buy(
+        &mut session,
+        PlayerKind::Human,
+        &asset,
+        &quote(&asset, "100"),
+        TradeAmount::Units(d("2")),
+        None,
+        now(),
+    )
+    .unwrap();
+
+    for attempt in [
+        engine::buy(
+            &mut session,
+            PlayerKind::Ai,
+            &asset,
+            &quote(&asset, "100"),
+            TradeAmount::Units(d("1")),
+            Some("renforcer"),
+            now(),
+        ),
+        engine::sell(
+            &mut session,
+            PlayerKind::Ai,
+            &asset,
+            &quote(&asset, "100"),
+            TradeAmount::All,
+            Some("alléger"),
+            now(),
+        ),
+    ] {
+        let error = attempt.unwrap_err();
+        assert!(error.to_string().contains("player_kind"), "{error}");
+    }
+    assert_eq!(
+        session.trades.len(),
+        1,
+        "seul l'achat de la personne compte"
+    );
+}
+
 #[test]
 fn a_human_may_trade_in_silence() {
     let mut session = game(PlayerKind::Human, "10000", "0");
     let asset = btc();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("1")),
@@ -491,6 +578,7 @@ fn a_quote_in_the_wrong_currency_is_refused() {
 
     let error = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &usd,
         TradeAmount::Units(d("1")),
@@ -509,6 +597,7 @@ fn a_quote_for_another_asset_is_refused() {
 
     let error = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&eth, "100"),
         TradeAmount::Units(d("1")),
@@ -527,6 +616,7 @@ fn a_zero_or_negative_price_is_refused() {
     for price in ["0", "-10"] {
         let error = engine::buy(
             &mut session,
+            PlayerKind::Human,
             &asset,
             &quote(&asset, price),
             TradeAmount::Units(d("1")),
@@ -549,6 +639,7 @@ fn an_unpriced_holding_is_reported_not_valued_at_zero() {
     let asset = btc();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote(&asset, "100"),
         TradeAmount::Units(d("10")),
@@ -578,6 +669,7 @@ fn a_simulated_price_is_flagged_all_the_way_up_to_the_snapshot() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &fake,
         TradeAmount::Units(d("10")),
@@ -602,6 +694,7 @@ fn weights_add_up_to_the_invested_share() {
 
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &btc_asset,
         &quote(&btc_asset, "100"),
         TradeAmount::Units(d("3")),
@@ -611,6 +704,7 @@ fn weights_add_up_to_the_invested_share() {
     .unwrap();
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &eth_asset,
         &quote(&eth_asset, "100"),
         TradeAmount::Units(d("2")),
@@ -803,6 +897,7 @@ fn a_finished_game_refuses_to_trade() {
     // and not about an empty portfolio.
     engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote,
         TradeAmount::Cash(d("1000")),
@@ -816,6 +911,7 @@ fn a_finished_game_refuses_to_trade() {
 
     let refused = engine::buy(
         &mut session,
+        PlayerKind::Human,
         &asset,
         &quote,
         TradeAmount::Cash(d("100")),
@@ -824,7 +920,15 @@ fn a_finished_game_refuses_to_trade() {
     );
     assert!(matches!(refused, Err(TradeError::Rejected(_))));
 
-    let refused = engine::sell(&mut session, &asset, &quote, TradeAmount::All, None, now());
+    let refused = engine::sell(
+        &mut session,
+        PlayerKind::Human,
+        &asset,
+        &quote,
+        TradeAmount::All,
+        None,
+        now(),
+    );
     assert!(matches!(refused, Err(TradeError::Rejected(_))));
 }
 

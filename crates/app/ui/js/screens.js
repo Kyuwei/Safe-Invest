@@ -108,7 +108,11 @@ export function renderDashboard(view, { onSell, onOpen }) {
   // summary becomes reachable.
   const readOnly = view.observerMode || view.finished;
   $("#observer-pill").hidden = !view.observerMode || view.finished;
-  $("#dash-actions").hidden = readOnly;
+  // Watching an AI is not the same as being unable to stop it: the person at
+  // the screen supervises the game, so « Terminer » stays within reach.
+  $("#dash-actions").hidden = view.finished;
+  $("#btn-dash-buy").hidden = readOnly;
+  $("#btn-end-game").textContent = view.observerMode ? "Arrêter l'IA" : "Terminer la partie";
   $("#nav-market").disabled = readOnly;
   $("#nav-summary").hidden = !view.finished;
 
