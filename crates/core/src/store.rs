@@ -6,10 +6,11 @@
 //! read-modify-write holds an OS file lock for its whole duration (two writers
 //! never interleave).
 
+use crate::fsx::{LockGuard, remove_stale_temp_files, write_atomic};
 use crate::model::{GameSession, GameSummary};
 use crate::paths::Paths;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -32,6 +33,11 @@ pub struct GameStore {
 impl GameStore {
     pub fn new(paths: Paths) -> io::Result<Self> {
         paths.ensure_created()?;
+        // An hour is far longer than any write takes, so a file that old was
+        // abandoned by a process that died mid-save.
+        let abandoned = std::time::Duration::from_secs(3600);
+        remove_stale_temp_files(&paths.games_dir(), abandoned);
+        remove_stale_temp_files(paths.root(), abandoned);
         Ok(Self { paths })
     }
 
@@ -168,68 +174,8 @@ impl GameStore {
     }
 }
 
-/// An exclusive OS lock held for the life of the guard.
-///
-/// A lock *file* rather than a named mutex: this works the same on Windows and
-/// on the Linux CI runner, and the kernel releases it even if the process is
-/// killed mid-write — a stale lock file can never wedge the app.
-#[derive(Debug)]
-struct LockGuard {
-    file: File,
-}
-
-impl LockGuard {
-    fn acquire(path: &Path) -> io::Result<Self> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let file = File::options()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
-        // `File::lock` has been in std since Rust 1.89 — no crate needed.
-        file.lock()?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for LockGuard {
-    fn drop(&mut self) {
-        let _ = self.file.unlock();
-    }
-}
-
 fn read_session(path: &Path) -> Result<GameSession, StoreError> {
     let mut text = String::new();
     File::open(path)?.read_to_string(&mut text)?;
     serde_json::from_str(&text).map_err(StoreError::Corrupt)
-}
-
-/// Writes `bytes` so that `path` is either the old content or the new one, and
-/// never a truncated mix of the two.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("chemin sans dossier parent"))?;
-    fs::create_dir_all(parent)?;
-
-    // The temporary file is a sibling: `rename` is only atomic within one
-    // filesystem, and the system temp directory may be on another.
-    let temp = parent.join(format!(".{}.tmp", uuid::Uuid::new_v4().simple()));
-    {
-        let mut file = File::create(&temp)?;
-        file.write_all(bytes)?;
-        // Without this, a power cut can leave a renamed-but-empty file.
-        file.sync_all()?;
-    }
-
-    match fs::rename(&temp, path) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let _ = fs::remove_file(&temp);
-            Err(error)
-        }
-    }
 }

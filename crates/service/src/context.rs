@@ -123,6 +123,7 @@ fn build_market(
 )]
 mod tests {
     use super::*;
+    use safe_invest_core::settings::PreferencesPatch;
 
     fn context(force_simulated: bool) -> (tempfile::TempDir, Context) {
         let dir = tempfile::tempdir().unwrap();
@@ -149,28 +150,36 @@ mod tests {
         assert!(context.is_demo_forced());
     }
 
-    #[test]
-    fn saving_the_settings_under_demo_does_not_pin_demo_mode() {
+    #[tokio::test]
+    async fn saving_the_settings_under_demo_does_not_pin_demo_mode() {
         // The bug this guards: launch once with --demo, tick any unrelated box,
         // and the app is stuck in demo mode for good.
         let (_dir, context) = context(true);
 
-        let mut settings = context.stored_settings();
-        settings.colour_blind_palette = true;
-        context.save_settings(&settings).unwrap();
+        context
+            .update_preferences(PreferencesPatch {
+                colour_blind_palette: Some(true),
+                ..PreferencesPatch::default()
+            })
+            .await
+            .unwrap();
 
         assert!(!context.stored_settings().force_simulated_mode);
         assert!(context.stored_settings().colour_blind_palette);
     }
 
-    #[test]
-    fn without_the_flag_the_file_decides() {
+    #[tokio::test]
+    async fn without_the_flag_the_file_decides() {
         let (_dir, context) = context(false);
         assert!(!context.settings().force_simulated_mode);
 
-        let mut settings = context.stored_settings();
-        settings.force_simulated_mode = true;
-        context.save_settings(&settings).unwrap();
+        context
+            .update_preferences(PreferencesPatch {
+                force_simulated_mode: Some(true),
+                ..PreferencesPatch::default()
+            })
+            .await
+            .unwrap();
 
         assert!(context.settings().force_simulated_mode);
         assert!(

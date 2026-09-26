@@ -12,7 +12,7 @@
 
 use safe_invest_core::journal;
 use safe_invest_core::model::{AssetKind, PlayerKind};
-use safe_invest_core::settings::AppSettings;
+use safe_invest_core::settings::{KEYED_PROVIDERS, Preferences, PreferencesPatch};
 use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
 use safe_invest_service::{
     BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, TradeSizing, view,
@@ -509,7 +509,8 @@ pub async fn sell(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
     /// What is on disk — the screen edits this, never the overridden copy.
-    pub settings: AppSettings,
+    /// No secret is in it, sealed or otherwise.
+    pub settings: Preferences,
     /// Which providers have a key stored — never the key itself.
     pub configured_keys: Vec<String>,
     /// True when `--demo` forces the simulator whatever the file says.
@@ -519,27 +520,27 @@ pub struct SettingsView {
 #[tauri::command]
 pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
     let settings = context.stored_settings();
-    let configured = ["coingecko", "coinmarketcap", "finnhub"]
-        .into_iter()
+    let configured = KEYED_PROVIDERS
+        .iter()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
-        .map(ToOwned::to_owned)
+        .map(|id| (*id).to_owned())
         .collect();
 
     SettingsView {
-        settings,
+        settings: settings.preferences(),
         configured_keys: configured,
         demo_forced: context.is_demo_forced(),
     }
 }
 
+/// Applies what changed on the settings screen — only that.
 #[tauri::command]
 pub async fn save_settings(
     context: tauri::State<'_, Context>,
     port: tauri::State<'_, crate::mcp_port::McpPort>,
-    settings: AppSettings,
+    change: PreferencesPatch,
 ) -> Answer<crate::mcp_port::PortStatus> {
-    context.save_settings(&settings)?;
-    context.reload_market().await?;
+    context.update_preferences(change).await?;
     // The port follows the setting immediately: a toggle that only takes
     // effect at the next launch is a toggle nobody trusts.
     Ok(port.reconcile(&context).await)
@@ -600,8 +601,7 @@ pub async fn set_api_key(
     provider_id: String,
     key: String,
 ) -> Answer<()> {
-    context.set_api_key(&provider_id, &key)?;
-    context.reload_market().await?;
+    context.set_api_key(&provider_id, &key).await?;
     Ok(())
 }
 

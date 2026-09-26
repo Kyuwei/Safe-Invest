@@ -65,7 +65,8 @@ export const api = {
   sell: (gameId, args) => call("sell", { args: { ...args, gameId } }),
 
   getSettings: () => call("get_settings"),
-  saveSettings: (settings) => call("save_settings", { settings }),
+  /** Sends only what changed: the page never holds, so never rewrites, a secret. */
+  saveSettings: (change) => call("save_settings", { change }),
   setApiKey: (providerId, key) => call("set_api_key", { providerId, key }),
   marketSources: () => call("market_sources"),
   mcpAccess: () => call("mcp_access"),

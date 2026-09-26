@@ -300,8 +300,9 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
     );
 
     // Which sources have a key, never what the key is.
-    let configured: Vec<&str> = ["coingecko", "coinmarketcap", "finnhub"]
-        .into_iter()
+    let configured: Vec<&str> = safe_invest_core::settings::KEYED_PROVIDERS
+        .iter()
+        .copied()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
         .collect();
     outln!(

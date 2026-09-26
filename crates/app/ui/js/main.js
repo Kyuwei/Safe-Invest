@@ -810,8 +810,7 @@ function syncRefreshButtons(seconds) {
  */
 async function persist(change) {
   try {
-    const { settings } = await api.getSettings();
-    await api.saveSettings({ ...settings, ...change });
+    await api.saveSettings(change);
     await applyDisplaySettings();
     await refreshMcpAccess();
     refreshSources();

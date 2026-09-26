@@ -10,7 +10,7 @@ use safe_invest_core::model::{
     Asset, AssetKind, EndReason, GameSession, GameSummary, Goal, GoalProgress, GoalStatus,
     PlayerKind, PortfolioSnapshot, Quote, Trade,
 };
-use safe_invest_core::settings::AppSettings;
+use safe_invest_core::settings::{PreferencesPatch, SettingsError};
 use safe_invest_core::{goal, valuation};
 use safe_invest_market::PricePoint;
 use safe_invest_market::service::ProviderStatus;
@@ -468,17 +468,33 @@ impl Context {
 
     // ---------------------------------------------------------- settings
 
-    pub fn save_settings(&self, settings: &AppSettings) -> ServiceResult<()> {
+    /// Applies a change from the settings screen, and rebuilds the market
+    /// only if the change concerns it.
+    pub async fn update_preferences(&self, patch: PreferencesPatch) -> ServiceResult<()> {
+        let rebuild = patch.touches_market();
         self.settings_service()
-            .save(settings)
-            .map_err(|e| ServiceError::Storage(e.to_string()))
+            .update_preferences(patch)
+            .map_err(settings_error)?;
+        if rebuild {
+            self.reload_market().await?;
+        }
+        Ok(())
     }
 
-    /// Stores an API key, sealed. Returns nothing: a stored secret is never
-    /// read back out to a caller.
-    pub fn set_api_key(&self, provider_id: &str, key: &str) -> ServiceResult<()> {
+    /// Stores an API key, sealed, and puts it to use. Returns nothing: a
+    /// stored secret is never read back out to a caller.
+    pub async fn set_api_key(&self, provider_id: &str, key: &str) -> ServiceResult<()> {
         self.settings_service()
             .set_api_key(provider_id, key)
-            .map_err(|e| ServiceError::Storage(e.to_string()))
+            .map_err(settings_error)?;
+        self.reload_market().await
+    }
+}
+
+/// A refusal is the caller's to fix; anything else is the disk's.
+fn settings_error(error: SettingsError) -> ServiceError {
+    match error {
+        SettingsError::Rejected(message) => ServiceError::Rejected(message),
+        other => ServiceError::Storage(other.to_string()),
     }
 }
