@@ -475,3 +475,92 @@ fn amounts_may_be_written_as_numbers_or_as_strings() {
 
     assert_eq!(portfolio["startingCash"], "10000.50");
 }
+
+/// What a client decides from `tools/list` alone: which tools only read (and
+/// may run without asking), which cannot be undone, and what shape an answer
+/// has. Strict clients refuse the whole list over an output schema that does
+/// not say "object".
+#[test]
+fn every_tool_says_what_it_touches_and_answers_an_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    let tools = mcp.request("tools/list", json!({}));
+    let tools = tools["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 16);
+
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        assert_eq!(tool["outputSchema"]["type"], "object", "{name}");
+        assert!(tool["annotations"]["title"].is_string(), "{name}");
+        assert!(tool["annotations"]["readOnlyHint"].is_boolean(), "{name}");
+    }
+
+    let by_name = |wanted: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == wanted)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(by_name("get_quotes")["annotations"]["readOnlyHint"], true);
+    assert_eq!(by_name("buy")["annotations"]["readOnlyHint"], false);
+    assert_eq!(by_name("end_game")["annotations"]["destructiveHint"], true);
+}
+
+/// A refusal is a result the model reads — with the reason and what to do —
+/// not a protocol error some clients never show it.
+#[test]
+fn a_refusal_comes_back_as_a_result_the_model_can_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    let response = mcp.raw_request(
+        "tools/call",
+        &json!({ "name": "get_portfolio", "arguments": {} }),
+    );
+    assert!(response.get("error").is_none(), "{response}");
+    let result = &response["result"];
+    assert_eq!(result["isError"], true, "{result}");
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Aucune partie"), "{text}");
+    assert!(text.contains("Conseil"), "{text}");
+}
+
+/// The history comes back bounded, with the full count beside it, and a
+/// price series comes with the five numbers that summarise it.
+#[test]
+fn long_answers_are_bounded_and_summarised() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    mcp.call(
+        "create_game",
+        json!({ "player_name": "Claude", "player_kind": "ai", "starting_cash": 10000 }),
+    );
+    for _ in 0..3 {
+        mcp.call(
+            "buy",
+            json!({ "symbol": "ETH", "kind": "crypto", "amount": 100, "rationale": "Achat régulier." }),
+        );
+    }
+
+    let history = mcp.call("get_trade_history", json!({ "limit": 2 }));
+    assert_eq!(history["total"], 3);
+    assert_eq!(history["count"], 2);
+
+    let prices = mcp.call(
+        "get_price_history",
+        json!({ "symbol": "BTC", "kind": "crypto", "days": 30 }),
+    );
+    let summary = &prices["summary"];
+    for field in ["first", "last", "low", "high", "changePercent"] {
+        assert!(summary[field].is_string(), "{field} : {summary}");
+    }
+
+    let invalid = mcp.call_expecting_refusal(
+        "get_quotes",
+        json!({ "symbols": ["BTC"], "kind": "crypto", "currency": "EUR&x=1" }),
+    );
+    assert!(invalid.contains("Devise invalide"), "{invalid}");
+}
