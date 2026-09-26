@@ -199,12 +199,20 @@ fois.
 
 ### Publier une version
 
+D'abord, la version : elle est écrite dans `Cargo.toml` (section `[workspace.package]` et
+les cinq lignes `safe-invest-*` de `[workspace.dependencies]`) et dans
+`crates/app/tauri.conf.json`. Changez-la aux deux endroits, laissez `cargo` mettre le
+`Cargo.lock` à jour (`cargo update --workspace`), et poussez sur `main`. La CI refuse un
+commit où les deux fichiers ne sont pas d'accord.
+
+Ensuite, la publication :
+
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 ou, depuis l'onglet **Actions** de GitHub, lancer **Release** à la main en saisissant la
-version. Le workflow vérifie que l'étiquette correspond à la version du `Cargo.toml`,
+même version. Le workflow vérifie que l'étiquette correspond à la version du `Cargo.toml`,
 compile, contrôle que l'exécutable démarre, puis publie `safe-invest.exe` et son
 empreinte SHA-256. Les notes se modifient dans
 [`.github/release-notes-template.md`](.github/release-notes-template.md).
