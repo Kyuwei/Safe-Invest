@@ -1017,7 +1017,7 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
 .key-card-head { display: flex; align-items: center; gap: 9px; }
 .key-card-name { font-size: 0.87rem; font-weight: 600; }
 .key-card-head .badge { margin-left: auto; }
-.key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 9px; }
 .key-row .ghost { justify-self: stretch; }
 
 .switch { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 0.87rem; }

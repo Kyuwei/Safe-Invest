@@ -14,11 +14,11 @@ use std::time::{Duration, Instant};
 const DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Calls `on_change` shortly after any game file is written, from a background
-/// thread. Dropping the returned handle stops the thread.
+/// thread. Dropping the returned handle stops the thread: the watcher owns the
+/// sending half of the channel, and the thread ends when it closes.
 #[derive(Debug)]
 pub struct StoreWatcher {
     _inner: notify::RecommendedWatcher,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl StoreWatcher {
@@ -36,41 +36,32 @@ impl StoreWatcher {
         })?;
         watcher.watch(&paths.games_dir(), RecursiveMode::NonRecursive)?;
 
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread_stop = std::sync::Arc::clone(&stop);
         std::thread::Builder::new()
             .name("safeinvest-store-watcher".into())
-            .spawn(move || debounce_loop(&rx, &thread_stop, &mut on_change))
+            .spawn(move || debounce_loop(&rx, &mut on_change))
             .map_err(notify::Error::io)?;
 
-        Ok(Self {
-            _inner: watcher,
-            stop,
-        })
+        Ok(Self { _inner: watcher })
     }
 }
 
-impl Drop for StoreWatcher {
-    fn drop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-fn debounce_loop(
-    rx: &Receiver<notify::Result<Event>>,
-    stop: &std::sync::atomic::AtomicBool,
-    on_change: &mut impl FnMut(),
-) {
+/// Waits for changes and reports each burst once, when it has settled.
+///
+/// With nothing pending the thread sleeps on the channel — it used to wake
+/// four times a second for the whole life of the window, on a laptop's
+/// battery, to find out that nothing had happened.
+fn debounce_loop(rx: &Receiver<notify::Result<Event>>, on_change: &mut impl FnMut()) {
     let mut pending: Option<Instant> = None;
     loop {
-        if stop.load(std::sync::atomic::Ordering::Relaxed) {
-            return;
-        }
+        let received = match pending {
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            Some(at) => rx.recv_timeout(DEBOUNCE.saturating_sub(at.elapsed())),
+        };
 
-        match rx.recv_timeout(DEBOUNCE) {
+        match received {
             Ok(Ok(event)) if is_content_change(&event) => pending = Some(Instant::now()),
-            // Anything else — an unrelated file, a watcher hiccup, or simply
-            // nothing happening — just falls through to the debounce check.
+            // Anything else — an unrelated file, a watcher hiccup, or the
+            // burst going quiet — falls through to the debounce check.
             Ok(_) | Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
@@ -99,4 +90,44 @@ fn is_game_file(path: &Path) -> bool {
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with('.'))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test that trips is a test that failed"
+)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// The whole point of the watcher: a trade written by the other process
+    /// reaches the window without it polling anything.
+    #[test]
+    fn a_game_written_elsewhere_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::at(dir.path());
+        let (tx, rx) = channel();
+        let watcher = StoreWatcher::start(&paths, move || {
+            let _ = tx.send(());
+        })
+        .unwrap();
+
+        for round in 0..3 {
+            std::fs::write(paths.games_dir().join("partie.json"), format!("{round}")).unwrap();
+        }
+
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("aucune notification après l'écriture d'une partie");
+        drop(watcher);
+    }
+
+    #[test]
+    fn temporary_files_are_not_games() {
+        assert!(is_game_file(Path::new("/x/games/abc.json")));
+        assert!(!is_game_file(Path::new("/x/games/.abc.tmp")));
+        assert!(!is_game_file(Path::new("/x/games/.abc.json")));
+        assert!(!is_game_file(Path::new("/x/games/notes.txt")));
+    }
 }

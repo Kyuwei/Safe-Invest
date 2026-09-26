@@ -15,7 +15,16 @@ use safe_invest_core::model::{Asset, AssetKind, Quote};
 use safe_invest_core::settings::{AppSettings, SettingsService};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// How long a source that could not be reached at all is left alone.
+///
+/// Offline, every request waits out its connection timeout. A chain of three
+/// sources, the scraper going symbol by symbol, used to hold the dashboard for
+/// over a minute before the simulator answered — on every refresh. One failed
+/// connection is enough to know the next one will fail too; after this long,
+/// it is worth trying again.
+const UNREACHABLE_PAUSE: Duration = Duration::from_secs(60);
 
 /// How a source is currently faring, for the Settings screen's status lights.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -75,6 +84,8 @@ pub struct MarketDataService {
     cache: TtlCache<String, Quote>,
     fx: FxRates,
     status: Mutex<HashMap<String, ProviderStatus>>,
+    /// Sources skipped until the given moment, after failing to connect.
+    paused: Mutex<HashMap<String, Instant>>,
 }
 
 impl MarketDataService {
@@ -141,6 +152,7 @@ impl MarketDataService {
             cache: TtlCache::new(options.cache_ttl),
             fx,
             status: Mutex::new(status),
+            paused: Mutex::new(HashMap::new()),
         }
     }
 
@@ -164,11 +176,9 @@ impl MarketDataService {
 
         if let Some(ids) = preferred {
             for id in ids {
-                if let Some(provider) = self
-                    .providers
-                    .iter()
-                    .find(|p| p.id() == id && p.supports(kind) && p.is_configured())
-                {
+                if let Some(provider) = self.providers.iter().find(|p| {
+                    p.id() == id && p.supports(kind) && p.is_configured() && !self.is_paused(id)
+                }) {
                     chain.push(Arc::clone(provider));
                 }
             }
@@ -345,7 +355,36 @@ impl MarketDataService {
         self.cache.clear();
     }
 
+    /// Whether `id` failed to connect a moment ago and is being left alone.
+    fn is_paused(&self, id: &str) -> bool {
+        let Ok(mut paused) = self.paused.lock() else {
+            return false;
+        };
+        match paused.get(id) {
+            Some(until) if Instant::now() < *until => true,
+            Some(_) => {
+                paused.remove(id);
+                false
+            }
+            None => false,
+        }
+    }
+
     fn record(&self, id: &str, outcome: Result<(), &ProviderError>) {
+        // Only an unreachable source is paused. One that answered with an error
+        // is up, and may answer the next question.
+        if let Ok(mut paused) = self.paused.lock() {
+            match outcome {
+                Err(ProviderError::Transport { .. }) => {
+                    paused.insert(id.to_owned(), Instant::now() + UNREACHABLE_PAUSE);
+                }
+                Ok(()) => {
+                    paused.remove(id);
+                }
+                Err(_) => {}
+            }
+        }
+
         let Ok(mut status) = self.status.lock() else {
             return;
         };

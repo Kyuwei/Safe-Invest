@@ -28,8 +28,15 @@ mod gui;
 mod mcp_port;
 
 use cli::{Command, Options, errln, outln};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set once the command is known to be the window: the one mode in which a
+/// failure has to be shown in a dialog, because nobody is reading a console.
+static WINDOWED: AtomicBool = AtomicBool::new(false);
 
 fn main() -> std::process::ExitCode {
+    report_panics();
+
     let (command, options) = match cli::parse(std::env::args().skip(1)) {
         Ok(parsed) => parsed,
         Err(message) => {
@@ -39,15 +46,61 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(2);
         }
     };
+    WINDOWED.store(command == Command::Window, Ordering::Relaxed);
 
     match run(command, &options) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            cli::attach_console();
-            errln!("Erreur : {error:#}");
+            let message = format!("{error:#}");
+            tracing::error!("arrêt sur erreur : {message}");
+            // Double-clicked from Explorer, there is no console to print to,
+            // and a window that never opens says nothing at all. Say it in a
+            // box instead — this is where a missing WebView2 is announced.
+            if cli::attach_console() || command != Command::Window {
+                errln!("Erreur : {message}");
+            } else {
+                safe_invest_platform::dialog::error(
+                    "Safe Invest ne peut pas démarrer",
+                    &format!("{message}\n\n`safe-invest.exe doctor` affiche un diagnostic."),
+                );
+            }
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+/// Writes a panic into the journal before the process goes.
+///
+/// The release build aborts on panic, which ends the process without a word:
+/// no console in the windowed build, and nothing in the journal either. This
+/// records what broke and where, then — in the window — says so on screen.
+fn report_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(ToString::to_string)
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "erreur sans message".to_owned());
+        let location = info
+            .location()
+            .map_or_else(String::new, |at| format!(" ({}:{})", at.file(), at.line()));
+
+        tracing::error!(target: "safe_invest::panic", "erreur interne : {message}{location}");
+        default(info);
+
+        if WINDOWED.load(Ordering::Relaxed) {
+            safe_invest_platform::dialog::error(
+                "Safe Invest doit s'arrêter",
+                &format!(
+                    "Une erreur interne s'est produite : {message}{location}\n\n\
+                     Le journal de diagnostic en garde la trace (Paramètres → Journal → \
+                     Exporter le journal)."
+                ),
+            );
+        }
+    }));
 }
 
 fn run(command: Command, options: &Options) -> anyhow::Result<()> {
@@ -64,11 +117,11 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
         }
         Command::Doctor => {
             cli::attach_console();
-            cli::init_logging(options);
+            cli::init_logging(options, "doctor");
             cli::doctor(options)
         }
         Command::Mcp => {
-            cli::init_logging(options);
+            cli::init_logging(options, "mcp");
             // Two workers: the server answers one JSON-RPC call at a time and
             // spends that time waiting on the network, not on the CPU.
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -110,7 +163,7 @@ fn run(command: Command, options: &Options) -> anyhow::Result<()> {
 
 #[cfg(feature = "gui")]
 fn run_window(options: &Options) -> anyhow::Result<()> {
-    cli::init_logging(options);
+    cli::init_logging(options, "fenêtre");
     gui::run(options)
 }
 

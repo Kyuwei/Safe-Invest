@@ -93,25 +93,27 @@ where
 {
     use futures_util::StreamExt as _;
 
-    let outcomes: Vec<ProviderResult<Option<Quote>>> = futures_util::stream::iter(fetches)
-        // One request per symbol is what these endpoints allow; issuing a few
-        // at once turns a twenty-symbol refresh from seconds into fractions of
-        // one, without exceeding any provider's stated budget.
-        .buffered(concurrency.max(1))
-        .collect()
-        .await;
+    // One request per symbol is what these endpoints allow; issuing a few at
+    // once turns a twenty-symbol refresh from seconds into fractions of one,
+    // without exceeding any provider's stated budget.
+    let mut outcomes = futures_util::stream::iter(fetches).buffered(concurrency.max(1));
 
-    let mut quotes = Vec::with_capacity(outcomes.len());
+    let mut quotes = Vec::new();
     let mut failure: Option<ProviderError> = None;
 
-    for outcome in outcomes {
+    while let Some(outcome) = outcomes.next().await {
         match outcome {
             Ok(Some(quote)) => quotes.push(quote),
             Ok(None) => {}
+            // The source cannot be reached. Every request still queued would
+            // wait out the same connection timeout, one after the other; stop
+            // here and let the chain move on with what is already in hand.
+            Err(error @ ProviderError::Transport { .. }) => {
+                failure.get_or_insert(error);
+                break;
+            }
             Err(error) => {
-                if failure.is_none() {
-                    failure = Some(error);
-                }
+                failure.get_or_insert(error);
             }
         }
     }

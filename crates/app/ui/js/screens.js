@@ -761,7 +761,7 @@ export function renderSources(sources) {
   }
 }
 
-export function renderKeyForm(configured, { onSave }) {
+export function renderKeyForm(configured, { onSave, onClear }) {
   const form = clear($("#key-form"));
 
   const providers = [
@@ -797,6 +797,15 @@ export function renderKeyForm(configured, { onSave }) {
               input.value = "";
             },
           }),
+          configured.includes(id)
+            ? el("button", {
+                class: "ghost",
+                type: "button",
+                text: "Supprimer",
+                "aria-label": `Supprimer la clé ${label}`,
+                onClick: () => onClear(id),
+              })
+            : null,
         ]),
       ])
     );

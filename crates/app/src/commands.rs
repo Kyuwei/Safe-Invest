@@ -4,6 +4,11 @@
 //! the MCP tools use. The page has no other way to reach the engine: the
 //! capability file grants it these commands and nothing else, no filesystem, no
 //! shell, no arbitrary HTTP.
+//!
+//! Tauri runs a command declared without `async` on the thread that draws the
+//! window. Anything here that reads or writes the disk is therefore declared
+//! `#[tauri::command(async)]`: a slow disk, an antivirus scan or a long list of
+//! saves must never freeze the interface while it waits.
 
 #![allow(
     clippy::needless_pass_by_value,
@@ -92,7 +97,7 @@ pub struct AppInfo {
     pub mcp_tools: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn app_info(context: tauri::State<'_, Context>) -> AppInfo {
     AppInfo {
         version: safe_invest_core::VERSION.to_owned(),
@@ -129,7 +134,7 @@ pub struct GameCard {
     pub end_reason_label: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_games(context: tauri::State<'_, Context>) -> Vec<GameCard> {
     context
         .list_games()
@@ -164,7 +169,7 @@ pub struct NewGameArgs {
     pub deadline: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_game(context: tauri::State<'_, Context>, args: NewGameArgs) -> Answer<String> {
     let player_kind = PlayerKind::from_str(&args.player_kind).map_err(|_| CommandError {
         message: "Indiquez qui joue : une personne ou une IA.".to_owned(),
@@ -232,13 +237,13 @@ fn parse_deadline(value: &str) -> Answer<jiff::Timestamp> {
 /// Nothing is recorded: the page keeps the id and names it in every call. The
 /// remembered "current game" belongs to the MCP side, and opening a game here
 /// must not move an AI that is playing another one.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_game(context: tauri::State<'_, Context>, game_id: String) -> Answer<()> {
     context.load_game(parse_id(&game_id)?)?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_game(context: tauri::State<'_, Context>, game_id: String) -> Answer<()> {
     context.delete_game(parse_id(&game_id)?)?;
     Ok(())
@@ -273,7 +278,7 @@ pub struct HistoryView {
     pub since: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn history(
     context: tauri::State<'_, Context>,
     game_id: String,
@@ -319,7 +324,7 @@ pub async fn end_game(
 }
 
 /// What a finished game amounted to. Refuses a game still in play.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn summary(context: tauri::State<'_, Context>, game_id: String) -> Answer<view::SummaryView> {
     let id = parse_id(&game_id)?;
     let session = context.load_game(id)?;
@@ -517,7 +522,7 @@ pub struct SettingsView {
     pub demo_forced: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
     let settings = context.stored_settings();
     let configured = KEYED_PROVIDERS
@@ -551,7 +556,7 @@ pub async fn save_settings(
 /// The token is returned here — unlike an API key, which is somebody else's
 /// secret and is never read back. This one is ours, it is useless anywhere but
 /// this machine, and a person cannot configure a client without seeing it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_access(
     context: tauri::State<'_, Context>,
     port: tauri::State<'_, crate::mcp_port::McpPort>,
@@ -665,7 +670,7 @@ pub struct JournalView {
 /// Capped here rather than trusting the caller: a journal is a megabyte, and
 /// pushing all of it through the bridge to draw a panel nobody scrolls would
 /// be a waste on every visit.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) -> JournalView {
     let paths = context.store().paths();
     let limit = lines.unwrap_or(300).min(2_000);
@@ -682,7 +687,7 @@ pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) ->
 /// It goes to the desktop when there is one. A bug report is written by
 /// somebody who then has to find the file to attach it, and a path inside
 /// `%LOCALAPPDATA%` is not somewhere people find things.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_journal(
     app: tauri::AppHandle,
     context: tauri::State<'_, Context>,

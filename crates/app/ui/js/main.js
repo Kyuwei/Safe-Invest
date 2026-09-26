@@ -704,11 +704,27 @@ async function loadSettings() {
       : "Mode démonstration : cours simulés, aucun appel réseau";
 
     screens.renderKeyForm(configuredKeys, {
+      // Success is announced only once it happened: this used to say « Clé
+      // enregistrée » right after the error saying it had not been.
       onSave: async (providerId, key) => {
         if (!key.trim()) return;
-        await api.setApiKey(providerId, key).catch(reportError);
-        toast("Clé enregistrée et chiffrée sur cette machine.", "ok");
-        await loadSettings();
+        try {
+          await api.setApiKey(providerId, key);
+          toast("Clé enregistrée et chiffrée sur cette machine.", "ok");
+          await loadSettings();
+        } catch (error) {
+          reportError(error);
+        }
+      },
+      onClear: async (providerId) => {
+        if (!confirm("Supprimer la clé enregistrée pour cette source ?")) return;
+        try {
+          await api.setApiKey(providerId, "");
+          toast("Clé supprimée.", "ok");
+          await loadSettings();
+        } catch (error) {
+          reportError(error);
+        }
       },
     });
   } catch (error) {
