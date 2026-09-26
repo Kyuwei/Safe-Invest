@@ -8,6 +8,7 @@
 use crate::cache::TtlCache;
 use crate::error::ProviderResult;
 use crate::http::HttpClient;
+use crate::providers::coingecko::urlencode;
 use crate::providers::decimal_from_json;
 use rust_decimal::Decimal;
 use safe_invest_core::model::Quote;
@@ -104,7 +105,11 @@ impl FxRates {
     /// The European Central Bank's daily reference rates, via Frankfurter. No
     /// key, no quota, and an authoritative source for a teaching tool.
     async fn via_frankfurter(&self, from: &str, to: &str) -> ProviderResult<Option<Decimal>> {
-        let url = format!("{FRANKFURTER}?base={from}&symbols={to}");
+        let url = format!(
+            "{FRANKFURTER}?base={}&symbols={}",
+            urlencode(from),
+            urlencode(to)
+        );
         let body: serde_json::Value = self.http.get_json(ID, &url, &[]).await?;
         Ok(body
             .pointer(&format!("/rates/{to}"))
@@ -112,7 +117,11 @@ impl FxRates {
     }
 
     async fn via_yahoo(&self, from: &str, to: &str) -> ProviderResult<Option<Decimal>> {
-        let url = format!("{YAHOO_FX}/{from}{to}=X?range=1d&interval=1d");
+        let url = format!(
+            "{YAHOO_FX}/{}{}=X?range=1d&interval=1d",
+            urlencode(from),
+            urlencode(to)
+        );
         let body: serde_json::Value = self
             .http
             .get_json(ID, &url, &[("accept", "application/json")])

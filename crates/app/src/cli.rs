@@ -207,7 +207,10 @@ impl std::io::Write for Sink {
 
 /// Sets up logging: standard error for whoever is watching, and the journal
 /// under the data directory for everyone else.
-pub fn init_logging(options: &Options) {
+///
+/// `role` marks every journal line with which process wrote it — the window,
+/// or one of the MCP servers that share the file with it.
+pub fn init_logging(options: &Options, role: &str) {
     use tracing_subscriber::EnvFilter;
 
     let filter = EnvFilter::try_from_env("SAFEINVEST_LOG")
@@ -215,7 +218,7 @@ pub fn init_logging(options: &Options) {
 
     // A journal that cannot be opened — a read-only disk, a directory taken by
     // a file — is a diagnostic lost, never a launch refused.
-    let journal = journal::Handle::open(&paths_for(options)).ok();
+    let journal = journal::Handle::open_as(&paths_for(options), role).ok();
     if journal.is_none() {
         errln!("Journal indisponible : les messages n'iront qu'à la console.");
     }
@@ -239,12 +242,19 @@ pub fn init_logging(options: &Options) {
 /// not flash a console window. The price is that `--version` typed at a prompt
 /// would print into the void; this buys it back for the console subcommands.
 /// Never called in MCP mode, where the client supplies its own pipes.
-pub fn attach_console() {
+///
+/// Returns whether there is somewhere to write: `false` when the program was
+/// started from Explorer rather than from a terminal.
+pub fn attach_console() -> bool {
     // Only the windowed release build starts without a console; every other
     // configuration already has one.
     #[cfg(all(windows, feature = "gui", not(debug_assertions)))]
     {
-        safe_invest_platform::console::attach();
+        safe_invest_platform::console::attach()
+    }
+    #[cfg(not(all(windows, feature = "gui", not(debug_assertions))))]
+    {
+        true
     }
 }
 
@@ -300,8 +310,9 @@ pub fn doctor(options: &Options) -> anyhow::Result<()> {
     );
 
     // Which sources have a key, never what the key is.
-    let configured: Vec<&str> = ["coingecko", "coinmarketcap", "finnhub"]
-        .into_iter()
+    let configured: Vec<&str> = safe_invest_core::settings::KEYED_PROVIDERS
+        .iter()
+        .copied()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
         .collect();
     outln!(

@@ -108,7 +108,11 @@ export function renderDashboard(view, { onSell, onOpen }) {
   // summary becomes reachable.
   const readOnly = view.observerMode || view.finished;
   $("#observer-pill").hidden = !view.observerMode || view.finished;
-  $("#dash-actions").hidden = readOnly;
+  // Watching an AI is not the same as being unable to stop it: the person at
+  // the screen supervises the game, so « Terminer » stays within reach.
+  $("#dash-actions").hidden = view.finished;
+  $("#btn-dash-buy").hidden = readOnly;
+  $("#btn-end-game").textContent = view.observerMode ? "Arrêter l'IA" : "Terminer la partie";
   $("#nav-market").disabled = readOnly;
   $("#nav-summary").hidden = !view.finished;
 
@@ -757,7 +761,7 @@ export function renderSources(sources) {
   }
 }
 
-export function renderKeyForm(configured, { onSave }) {
+export function renderKeyForm(configured, { onSave, onClear }) {
   const form = clear($("#key-form"));
 
   const providers = [
@@ -770,7 +774,9 @@ export function renderKeyForm(configured, { onSave }) {
     const input = el("input", {
       type: "password",
       autocomplete: "off",
-      placeholder: configured.includes(id) ? "•••••••• (enregistrée)" : "coller la clé ici",
+      // The badge beside the name already says it is stored; the field only
+      // has room for the dots once « Supprimer » sits next to it.
+      placeholder: configured.includes(id) ? "••••••••" : "coller la clé ici",
     });
 
     form.append(
@@ -793,6 +799,15 @@ export function renderKeyForm(configured, { onSave }) {
               input.value = "";
             },
           }),
+          configured.includes(id)
+            ? el("button", {
+                class: "ghost",
+                type: "button",
+                text: "Supprimer",
+                "aria-label": `Supprimer la clé ${label}`,
+                onClick: () => onClear(id),
+              })
+            : null,
         ]),
       ])
     );

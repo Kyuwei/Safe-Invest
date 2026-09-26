@@ -462,3 +462,33 @@ async fn a_search_narrowed_to_one_kind_only_returns_that_kind() {
 
     assert!(found.iter().all(|a| a.kind == AssetKind::Etf));
 }
+
+/// Offline, every request waits out its connection timeout. A source that
+/// could not be reached is left alone for a while instead of being asked —
+/// and waited on — at every refresh.
+#[tokio::test]
+async fn a_source_that_cannot_be_reached_is_left_alone_for_a_while() {
+    let unreachable = FakeSource::failing(
+        "fake-down",
+        ProviderError::Transport {
+            provider: "fake-down",
+            detail: "connexion impossible".into(),
+        },
+    );
+    let backup = FakeSource::answering("fake-up", "EUR", &[("BTC", "60000")]);
+    let market = service(
+        vec![unreachable.clone(), backup.clone()],
+        &["fake-down", "fake-up"],
+    );
+
+    market.quotes(&[btc()], "EUR").await;
+    market.invalidate();
+    market.quotes(&[btc()], "EUR").await;
+
+    assert_eq!(
+        unreachable.calls(),
+        1,
+        "une source injoignable a été rappelée aussitôt"
+    );
+    assert_eq!(backup.calls(), 2);
+}

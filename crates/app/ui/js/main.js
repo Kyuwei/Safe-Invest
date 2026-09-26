@@ -13,6 +13,8 @@ const state = {
   tab: "dashboard",
   /** False when the shell is open with no game — the settings-only case. */
   inGame: false,
+  /** The game on screen. Sent with every call about a game. */
+  gameId: null,
   dashboard: null,
   marketKind: "all",
   asset: null,
@@ -127,6 +129,7 @@ async function goHome() {
   stopRefresh();
   state.screen = "home";
   state.inGame = false;
+  state.gameId = null;
   screens.showScreen("home");
   await loadGames();
 }
@@ -136,8 +139,12 @@ async function loadGames() {
     const games = await api.listGames();
     screens.renderGames(games, {
       onOpen: async (id) => {
-        await api.openGame(id);
-        await enterGame();
+        try {
+          await api.openGame(id);
+          await enterGame(id);
+        } catch (error) {
+          reportError(error);
+        }
       },
       onDelete: async (game) => {
         const ok = confirm(`Supprimer définitivement la partie de ${game.playerName} ?`);
@@ -184,7 +191,7 @@ function bindNewGameForm() {
 
     const data = Object.fromEntries(new FormData(form).entries());
     try {
-      await api.createGame({
+      const gameId = await api.createGame({
         playerName: data.playerName,
         playerKind: data.playerKind,
         startingCash: data.startingCash,
@@ -195,7 +202,7 @@ function bindNewGameForm() {
       });
       form.reset();
       $("#goal-field").hidden = true;
-      await enterGame();
+      await enterGame(gameId);
     } catch (raw) {
       const failure = raw instanceof AppError ? raw : new AppError(String(raw));
       error.textContent = failure.hint ? `${failure.message} ${failure.hint}` : failure.message;
@@ -253,7 +260,8 @@ function enterShell(tab, inGame) {
   loadTab(tab);
 }
 
-async function enterGame() {
+async function enterGame(gameId) {
+  state.gameId = gameId;
   enterShell("dashboard", true);
   await refreshGame();
 
@@ -273,15 +281,16 @@ async function enterGame() {
  * asks first.
  */
 async function endGame() {
+  const byAi = Boolean(state.dashboard?.observerMode);
   const ok = confirm(
-    "Terminer la partie maintenant ?\n\n" +
+    (byAi ? "Arrêter la partie de l'IA maintenant ?\n\n" : "Terminer la partie maintenant ?\n\n") +
       "Le résultat sera figé à la valeur actuelle du portefeuille et plus aucun ordre " +
       "ne pourra être passé."
   );
   if (!ok) return;
 
   try {
-    state.dashboard = await api.endGame();
+    state.dashboard = await api.endGame(state.gameId);
     stopRefresh();
     await refreshGame();
     selectTab("summary");
@@ -294,7 +303,7 @@ async function endGame() {
 async function loadSummary() {
   if (!state.inGame) return;
   try {
-    screens.renderSummary(await api.summary());
+    screens.renderSummary(await api.summary(state.gameId));
   } catch (error) {
     reportError(error);
   }
@@ -302,7 +311,7 @@ async function loadSummary() {
 
 async function refreshGame({ quiet = false } = {}) {
   try {
-    const view = await api.dashboard();
+    const view = await api.dashboard(state.gameId);
     state.dashboard = view;
     screens.renderDashboard(view, {
       onSell: openSell,
@@ -310,7 +319,7 @@ async function refreshGame({ quiet = false } = {}) {
     });
 
     if (view.observerMode) {
-      const recent = await api.history(5);
+      const recent = await api.history(state.gameId, 5);
       screens.renderAiFeed(recent.trades, true);
     } else {
       screens.renderAiFeed([], false);
@@ -356,7 +365,7 @@ function bindHistoryFilters() {
 async function loadHistory() {
   if (!state.inGame) return;
   try {
-    const view = await api.history(null);
+    const view = await api.history(state.gameId, null);
     state.history.trades = view.trades;
     state.history.summary = view.count
       ? `${view.count} opération(s) · volume échangé ${view.volume}` +
@@ -414,7 +423,7 @@ function bindMarket() {
 async function loadMarket() {
   if (!state.inGame) return;
   try {
-    const rows = await api.market($("#market-search").value, state.marketKind);
+    const rows = await api.market($("#market-search").value, state.marketKind, state.gameId);
     screens.renderMarket(rows, {
       observerMode: Boolean(state.dashboard?.observerMode),
       onOpen: (row) => openAsset(row.symbol, row.kind),
@@ -445,7 +454,7 @@ const trade = { side: "buy", mode: "amount", asset: null };
 async function openAsset(symbol, kind) {
   const dialog = $("#asset-dialog");
   try {
-    const view = await api.asset(symbol, kind, 30);
+    const view = await api.asset(symbol, kind, 30, state.gameId);
     state.asset = view;
 
     $("#asset-symbol").textContent = view.symbol;
@@ -660,7 +669,10 @@ function bindTradeDialog() {
     };
 
     try {
-      const done = trade.side === "buy" ? await api.buy(args) : await api.sell(args);
+      const done =
+        trade.side === "buy"
+          ? await api.buy(state.gameId, args)
+          : await api.sell(state.gameId, args);
       $("#trade-dialog").close();
       toast(`${done.sideLabel} : ${done.quantity} ${done.symbol} pour ${done.total}`, "ok");
       await refreshGame();
@@ -692,11 +704,27 @@ async function loadSettings() {
       : "Mode démonstration : cours simulés, aucun appel réseau";
 
     screens.renderKeyForm(configuredKeys, {
+      // Success is announced only once it happened: this used to say « Clé
+      // enregistrée » right after the error saying it had not been.
       onSave: async (providerId, key) => {
         if (!key.trim()) return;
-        await api.setApiKey(providerId, key).catch(reportError);
-        toast("Clé enregistrée et chiffrée sur cette machine.", "ok");
-        await loadSettings();
+        try {
+          await api.setApiKey(providerId, key);
+          toast("Clé enregistrée et chiffrée sur cette machine.", "ok");
+          await loadSettings();
+        } catch (error) {
+          reportError(error);
+        }
+      },
+      onClear: async (providerId) => {
+        if (!confirm("Supprimer la clé enregistrée pour cette source ?")) return;
+        try {
+          await api.setApiKey(providerId, "");
+          toast("Clé supprimée.", "ok");
+          await loadSettings();
+        } catch (error) {
+          reportError(error);
+        }
       },
     });
   } catch (error) {
@@ -798,8 +826,7 @@ function syncRefreshButtons(seconds) {
  */
 async function persist(change) {
   try {
-    const { settings } = await api.getSettings();
-    await api.saveSettings({ ...settings, ...change });
+    await api.saveSettings(change);
     await applyDisplaySettings();
     await refreshMcpAccess();
     refreshSources();

@@ -20,7 +20,7 @@ jiff.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["io-std", "net", "rt", "macros"] }
+tokio = { workspace = true, features = ["io-std", "net", "rt", "macros", "time"] }
 tracing.workspace = true
 uuid.workspace = true
 schemars = "1.2.2"

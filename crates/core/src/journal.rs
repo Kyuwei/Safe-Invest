@@ -120,25 +120,45 @@ impl Journal {
     }
 
     fn rotate(&mut self) -> io::Result<()> {
-        self.file = None;
+        // The window and every MCP process append to this same file. If one of
+        // them has already rotated it, the live file on disk is a fresh one,
+        // smaller than what this handle wrote — and this handle is still
+        // pointing at the file that became the previous one. Follow it to the
+        // new file rather than rotating a second time, which would throw the
+        // other process's recent lines away.
+        let on_disk = std::fs::metadata(&self.path).map_or(0, |meta| meta.len());
+        if on_disk < self.written {
+            self.reopen()?;
+            self.written = on_disk;
+            return Ok(());
+        }
+
         // Renaming over the old previous file is the whole rotation: two files,
-        // never three, and the live one starts empty.
+        // never three, and the live one starts empty. The handle is kept until
+        // the rename has worked, so a rotation that fails leaves the journal
+        // writing where it was instead of writing nowhere.
         std::fs::rename(&self.path, &self.previous)?;
+        self.reopen()?;
+        self.written = 0;
+        Ok(())
+    }
+
+    fn reopen(&mut self) -> io::Result<()> {
         self.file = Some(
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&self.path)?,
         );
-        self.written = 0;
         Ok(())
     }
 
     fn append(&mut self, bytes: &[u8]) {
-        if self.written + bytes.len() as u64 > self.max_bytes {
-            // A rotation that fails leaves the file where it was; writing on is
-            // better than losing the line.
-            let _ = self.rotate();
+        if self.written + bytes.len() as u64 > self.max_bytes && self.rotate().is_err() {
+            // Writing on is better than losing the line. The counter starts
+            // again so the next attempt comes after another full file, not on
+            // every line from here on.
+            self.written = 0;
         }
         if let Some(file) = self.file.as_mut()
             && file.write_all(bytes).is_ok()
@@ -154,25 +174,63 @@ impl Journal {
 /// cannot be written is a lost diagnostic, not a reason for the program to
 /// stop working.
 #[derive(Debug, Clone)]
-pub struct Handle(Arc<Mutex<Journal>>);
+pub struct Handle {
+    journal: Arc<Mutex<Journal>>,
+    /// Put in front of every line: which process wrote it.
+    tag: Arc<str>,
+}
 
 impl Handle {
     /// Opens the journal under `paths`, creating the directory if needed.
     pub fn open(paths: &Paths) -> io::Result<Self> {
-        Self::with_limit(paths, MAX_BYTES)
+        Self::open_as(paths, "")
+    }
+
+    /// The same, with every line marked as written by `role` in this process.
+    ///
+    /// The window and each MCP server write to the one journal, and a line
+    /// that does not say which of them wrote it cannot be read against the
+    /// others: a refused order in the window and a trade by an AI look alike.
+    pub fn open_as(paths: &Paths, role: &str) -> io::Result<Self> {
+        let tag = if role.is_empty() {
+            String::new()
+        } else {
+            format!("[{role} {}] ", std::process::id())
+        };
+        Self::build(paths, MAX_BYTES, tag)
     }
 
     pub fn with_limit(paths: &Paths, max_bytes: u64) -> io::Result<Self> {
+        Self::build(paths, max_bytes, String::new())
+    }
+
+    fn build(paths: &Paths, max_bytes: u64, tag: String) -> io::Result<Self> {
         let journal = Journal::open(file(paths), previous_file(paths), max_bytes)?;
-        Ok(Self(Arc::new(Mutex::new(journal))))
+        Ok(Self {
+            journal: Arc::new(Mutex::new(journal)),
+            tag: tag.into(),
+        })
+    }
+
+    /// `text` with the tag in front of each of its lines.
+    fn tagged(&self, text: &str) -> String {
+        if self.tag.is_empty() {
+            return text.to_owned();
+        }
+        let mut out = String::with_capacity(text.len() + self.tag.len());
+        for line in text.split_inclusive('\n') {
+            out.push_str(&self.tag);
+            out.push_str(line);
+        }
+        out
     }
 }
 
 impl Write for Handle {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let text = String::from_utf8_lossy(buf);
-        let scrubbed = scrub(&text);
-        if let Ok(mut journal) = self.0.lock() {
+        let scrubbed = self.tagged(&scrub(&text));
+        if let Ok(mut journal) = self.journal.lock() {
             journal.append(scrubbed.as_bytes());
         }
         // The caller's buffer was consumed whatever the scrubbed length is.
@@ -180,7 +238,7 @@ impl Write for Handle {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if let Ok(mut journal) = self.0.lock()
+        if let Ok(mut journal) = self.journal.lock()
             && let Some(file) = journal.file.as_mut()
         {
             let _ = file.flush();
@@ -308,6 +366,65 @@ mod tests {
         // Rotation must not lose the recent past: the newest line is still there.
         let lines = tail(&paths, 100);
         assert!(lines.iter().any(|line| line == "ligne numero 39"));
+    }
+
+    /// The bug this guards: the handle was dropped before the rename, so a
+    /// rotation that failed — a file held open elsewhere on Windows — left the
+    /// journal writing nowhere for the rest of the run.
+    #[test]
+    fn a_rotation_that_fails_does_not_silence_the_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        // A directory where the previous file should go makes the rename fail.
+        std::fs::create_dir_all(previous_file(&paths)).unwrap();
+        let mut handle = Handle::with_limit(&paths, 100).unwrap();
+
+        for i in 0..20 {
+            handle.write_all(format!("ligne {i}\n").as_bytes()).unwrap();
+        }
+        handle.flush().unwrap();
+
+        let text = std::fs::read_to_string(file(&paths)).unwrap();
+        assert!(text.contains("ligne 19"), "{text}");
+    }
+
+    /// Two processes share the file. When one rotates, the other follows it
+    /// to the new file instead of rotating again over the first one's lines.
+    #[test]
+    fn a_second_writer_follows_a_rotation_made_by_the_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        let mut window = Handle::with_limit(&paths, 120).unwrap();
+        let mut server = Handle::with_limit(&paths, 120).unwrap();
+
+        for i in 0..40 {
+            window
+                .write_all(format!("fenetre {i}\n").as_bytes())
+                .unwrap();
+            server
+                .write_all(format!("serveur {i}\n").as_bytes())
+                .unwrap();
+        }
+
+        let lines = tail(&paths, 1000);
+        assert!(lines.iter().any(|l| l == "fenetre 39"), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "serveur 39"), "{lines:?}");
+    }
+
+    #[test]
+    fn each_line_says_which_process_wrote_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        let mut handle = Handle::open_as(&paths, "mcp").unwrap();
+
+        handle.write_all(b"premiere\nseconde\n").unwrap();
+        handle.flush().unwrap();
+
+        let tag = format!("[mcp {}] ", std::process::id());
+        assert_eq!(
+            tail(&paths, 10),
+            [format!("{tag}premiere"), format!("{tag}seconde")]
+        );
     }
 
     #[test]

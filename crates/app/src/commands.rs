@@ -4,6 +4,11 @@
 //! the MCP tools use. The page has no other way to reach the engine: the
 //! capability file grants it these commands and nothing else, no filesystem, no
 //! shell, no arbitrary HTTP.
+//!
+//! Tauri runs a command declared without `async` on the thread that draws the
+//! window. Anything here that reads or writes the disk is therefore declared
+//! `#[tauri::command(async)]`: a slow disk, an antivirus scan or a long list of
+//! saves must never freeze the interface while it waits.
 
 #![allow(
     clippy::needless_pass_by_value,
@@ -12,11 +17,10 @@
 
 use safe_invest_core::journal;
 use safe_invest_core::model::{AssetKind, PlayerKind};
-use safe_invest_core::settings::AppSettings;
+use safe_invest_core::settings::{KEYED_PROVIDERS, Preferences, PreferencesPatch};
 use safe_invest_service::view::{AssetView, DashboardView, MarketRow, TradeRow};
 use safe_invest_service::{
-    BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, SetGoalRequest, TradeSizing,
-    view,
+    BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, TradeSizing, view,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -89,12 +93,11 @@ pub struct AppInfo {
     /// configuration block that is already correct rather than a placeholder.
     pub exe_path: Option<String>,
     pub demo_mode: bool,
-    pub current_game_id: Option<String>,
     /// The tools an AI would be given. Read from the MCP crate, never retyped.
     pub mcp_tools: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn app_info(context: tauri::State<'_, Context>) -> AppInfo {
     AppInfo {
         version: safe_invest_core::VERSION.to_owned(),
@@ -103,7 +106,6 @@ pub fn app_info(context: tauri::State<'_, Context>) -> AppInfo {
             .ok()
             .map(|path| path.display().to_string()),
         demo_mode: context.settings().force_simulated_mode,
-        current_game_id: context.current_game_id().map(|id| id.to_string()),
         mcp_tools: safe_invest_mcp::server::TOOL_NAMES
             .iter()
             .map(|name| (*name).to_owned())
@@ -132,7 +134,7 @@ pub struct GameCard {
     pub end_reason_label: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_games(context: tauri::State<'_, Context>) -> Vec<GameCard> {
     context
         .list_games()
@@ -167,7 +169,7 @@ pub struct NewGameArgs {
     pub deadline: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_game(context: tauri::State<'_, Context>, args: NewGameArgs) -> Answer<String> {
     let player_kind = PlayerKind::from_str(&args.player_kind).map_err(|_| CommandError {
         message: "Indiquez qui joue : une personne ou une IA.".to_owned(),
@@ -230,40 +232,33 @@ fn parse_deadline(value: &str) -> Answer<jiff::Timestamp> {
         })
 }
 
-#[tauri::command]
+/// Checks that a game can be opened before the page switches to it.
+///
+/// Nothing is recorded: the page keeps the id and names it in every call. The
+/// remembered "current game" belongs to the MCP side, and opening a game here
+/// must not move an AI that is playing another one.
+#[tauri::command(async)]
 pub fn open_game(context: tauri::State<'_, Context>, game_id: String) -> Answer<()> {
-    context.open_game(parse_id(&game_id)?)?;
+    context.load_game(parse_id(&game_id)?)?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_game(context: tauri::State<'_, Context>, game_id: String) -> Answer<()> {
     context.delete_game(parse_id(&game_id)?)?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_goal(
-    context: tauri::State<'_, Context>,
-    target_amount: String,
-    deadline: String,
-) -> Answer<()> {
-    context.set_goal(
-        &SetGoalRequest {
-            game_id: None,
-            target_amount: parse_amount(&target_amount)?,
-            deadline: parse_deadline(&deadline)?,
-        },
-        jiff::Timestamp::now(),
-    )?;
     Ok(())
 }
 
 // -------------------------------------------------------------- dashboard
 
 #[tauri::command]
-pub async fn dashboard(context: tauri::State<'_, Context>) -> Answer<DashboardView> {
-    let report = context.portfolio(None, jiff::Timestamp::now()).await?;
+pub async fn dashboard(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+) -> Answer<DashboardView> {
+    let report = context
+        .portfolio(parse_id(&game_id)?, jiff::Timestamp::now())
+        .await?;
     Ok(view::dashboard(&report))
 }
 
@@ -283,10 +278,15 @@ pub struct HistoryView {
     pub since: Option<String>,
 }
 
-#[tauri::command]
-pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answer<HistoryView> {
-    let session = context.load_game(None)?;
-    let trades = context.trade_history(None, limit)?;
+#[tauri::command(async)]
+pub fn history(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+    limit: Option<usize>,
+) -> Answer<HistoryView> {
+    let id = parse_id(&game_id)?;
+    let session = context.load_game(id)?;
+    let trades = context.trade_history(id, limit)?;
 
     let volume = trades
         .iter()
@@ -308,29 +308,46 @@ pub fn history(context: tauri::State<'_, Context>, limit: Option<usize>) -> Answ
     })
 }
 
-/// Ends the current game at the value it has right now.
+/// Ends the game at the value it has right now.
+///
+/// Allowed on an AI game too: the person watching is the one supervising it,
+/// and stopping an AI that has gone astray is theirs to decide.
 #[tauri::command]
-pub async fn end_game(context: tauri::State<'_, Context>) -> Answer<DashboardView> {
+pub async fn end_game(
+    context: tauri::State<'_, Context>,
+    game_id: String,
+) -> Answer<DashboardView> {
+    let id = parse_id(&game_id)?;
     let now = jiff::Timestamp::now();
-    context.end_game(None, now).await?;
-    Ok(view::dashboard(&context.portfolio(None, now).await?))
+    context.end_game(id, PlayerKind::Human, now).await?;
+    Ok(view::dashboard(&context.portfolio(id, now).await?))
 }
 
 /// What a finished game amounted to. Refuses a game still in play.
-#[tauri::command]
-pub fn summary(context: tauri::State<'_, Context>) -> Answer<view::SummaryView> {
-    let session = context.load_game(None)?;
-    let summary = context.summary(None)?;
+#[tauri::command(async)]
+pub fn summary(context: tauri::State<'_, Context>, game_id: String) -> Answer<view::SummaryView> {
+    let id = parse_id(&game_id)?;
+    let session = context.load_game(id)?;
+    let summary = context.summary(id)?;
     Ok(view::summary(&session, &summary))
 }
 
 // ----------------------------------------------------------------- market
+
+/// The currency a screen quotes in: the open game's, else the default.
+fn currency_of(context: &Context, game_id: Option<&str>) -> Answer<String> {
+    match game_id.filter(|id| !id.trim().is_empty()) {
+        Some(id) => Ok(context.load_game(parse_id(id)?)?.currency),
+        None => Ok(context.settings().default_currency),
+    }
+}
 
 #[tauri::command]
 pub async fn market(
     context: tauri::State<'_, Context>,
     query: String,
     kind: Option<String>,
+    game_id: Option<String>,
 ) -> Answer<Vec<MarketRow>> {
     let kind = kind
         .as_deref()
@@ -338,9 +355,7 @@ pub async fn market(
         .map(parse_kind)
         .transpose()?;
 
-    let currency = context
-        .load_game(None)
-        .map_or_else(|_| context.settings().default_currency, |g| g.currency);
+    let currency = currency_of(&context, game_id.as_deref())?;
 
     let assets = if query.trim().is_empty() {
         context.popular_assets(kind)
@@ -366,9 +381,15 @@ pub async fn asset(
     symbol: String,
     kind: String,
     days: Option<u16>,
+    game_id: Option<String>,
 ) -> Answer<AssetView> {
+    let game = game_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .map(parse_id)
+        .transpose()?;
     let report = context
-        .asset_report(parse_kind(&kind)?, &symbol, days.unwrap_or(30))
+        .asset_report(parse_kind(&kind)?, &symbol, days.unwrap_or(30), game)
         .await?;
     Ok(view::asset_view(&report))
 }
@@ -388,14 +409,13 @@ pub async fn price_history(
     symbol: String,
     kind: String,
     days: Option<u16>,
+    game_id: Option<String>,
 ) -> Answer<Sparkline> {
     use rust_decimal::prelude::ToPrimitive;
 
     let kind = parse_kind(&kind)?;
     let asset = context.resolve_asset(kind, &symbol)?;
-    let currency = context
-        .load_game(None)
-        .map_or_else(|_| context.settings().default_currency, |g| g.currency);
+    let currency = currency_of(&context, game_id.as_deref())?;
 
     let points = context
         .price_history(&asset, days.unwrap_or(30).clamp(1, 365), &currency)
@@ -413,6 +433,7 @@ pub async fn price_history(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderArgs {
+    pub game_id: String,
     pub symbol: String,
     pub kind: String,
     pub quantity: Option<String>,
@@ -444,12 +465,14 @@ impl OrderArgs {
 #[tauri::command]
 pub async fn buy(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<TradeRow> {
     let sizing = args.sizing()?;
-    let session = context.load_game(None)?;
+    let id = parse_id(&args.game_id)?;
+    let session = context.load_game(id)?;
 
     let trade = context
         .buy(
             BuyRequest {
-                game_id: None,
+                game_id: id,
+                actor: PlayerKind::Human,
                 symbol: args.symbol,
                 kind: parse_kind(&args.kind)?,
                 sizing,
@@ -465,12 +488,14 @@ pub async fn buy(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<
 #[tauri::command]
 pub async fn sell(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer<TradeRow> {
     let sizing = args.sizing()?;
-    let session = context.load_game(None)?;
+    let id = parse_id(&args.game_id)?;
+    let session = context.load_game(id)?;
 
     let trade = context
         .sell(
             SellRequest {
-                game_id: None,
+                game_id: id,
+                actor: PlayerKind::Human,
                 symbol: args.symbol,
                 kind: parse_kind(&args.kind)?,
                 sizing,
@@ -489,37 +514,38 @@ pub async fn sell(context: tauri::State<'_, Context>, args: OrderArgs) -> Answer
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
     /// What is on disk — the screen edits this, never the overridden copy.
-    pub settings: AppSettings,
+    /// No secret is in it, sealed or otherwise.
+    pub settings: Preferences,
     /// Which providers have a key stored — never the key itself.
     pub configured_keys: Vec<String>,
     /// True when `--demo` forces the simulator whatever the file says.
     pub demo_forced: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings(context: tauri::State<'_, Context>) -> SettingsView {
     let settings = context.stored_settings();
-    let configured = ["coingecko", "coinmarketcap", "finnhub"]
-        .into_iter()
+    let configured = KEYED_PROVIDERS
+        .iter()
         .filter(|id| context.settings_service().api_key(&settings, id).is_some())
-        .map(ToOwned::to_owned)
+        .map(|id| (*id).to_owned())
         .collect();
 
     SettingsView {
-        settings,
+        settings: settings.preferences(),
         configured_keys: configured,
         demo_forced: context.is_demo_forced(),
     }
 }
 
+/// Applies what changed on the settings screen — only that.
 #[tauri::command]
 pub async fn save_settings(
     context: tauri::State<'_, Context>,
     port: tauri::State<'_, crate::mcp_port::McpPort>,
-    settings: AppSettings,
+    change: PreferencesPatch,
 ) -> Answer<crate::mcp_port::PortStatus> {
-    context.save_settings(&settings)?;
-    context.reload_market().await?;
+    context.update_preferences(change).await?;
     // The port follows the setting immediately: a toggle that only takes
     // effect at the next launch is a toggle nobody trusts.
     Ok(port.reconcile(&context).await)
@@ -530,7 +556,7 @@ pub async fn save_settings(
 /// The token is returned here — unlike an API key, which is somebody else's
 /// secret and is never read back. This one is ours, it is useless anywhere but
 /// this machine, and a person cannot configure a client without seeing it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_access(
     context: tauri::State<'_, Context>,
     port: tauri::State<'_, crate::mcp_port::McpPort>,
@@ -567,8 +593,7 @@ pub async fn regenerate_mcp_token(
     let token = context.settings_service().regenerate_mcp_token()?;
     // The running server still holds the old token in memory, so it has to be
     // restarted or the new one would not work until the next launch.
-    port.stop_for_restart();
-    port.reconcile(&context).await;
+    port.restart(&context).await;
     Ok(token)
 }
 
@@ -580,8 +605,7 @@ pub async fn set_api_key(
     provider_id: String,
     key: String,
 ) -> Answer<()> {
-    context.set_api_key(&provider_id, &key)?;
-    context.reload_market().await?;
+    context.set_api_key(&provider_id, &key).await?;
     Ok(())
 }
 
@@ -646,7 +670,7 @@ pub struct JournalView {
 /// Capped here rather than trusting the caller: a journal is a megabyte, and
 /// pushing all of it through the bridge to draw a panel nobody scrolls would
 /// be a waste on every visit.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) -> JournalView {
     let paths = context.store().paths();
     let limit = lines.unwrap_or(300).min(2_000);
@@ -663,7 +687,7 @@ pub fn read_journal(context: tauri::State<'_, Context>, lines: Option<usize>) ->
 /// It goes to the desktop when there is one. A bug report is written by
 /// somebody who then has to find the file to attach it, and a path inside
 /// `%LOCALAPPDATA%` is not somewhere people find things.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_journal(
     app: tauri::AppHandle,
     context: tauri::State<'_, Context>,

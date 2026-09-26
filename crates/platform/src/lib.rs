@@ -2,8 +2,8 @@
 //!
 //! Every `unsafe` line in Safe Invest is in this crate, and each one wraps a C
 //! API that has no safe equivalent in the dependency tree: DPAPI for sealing an
-//! API key, and console attachment so a windowed executable can still answer
-//! `--version` at a prompt.
+//! API key, console attachment so a windowed executable can still answer
+//! `--version` at a prompt, and a message box for when the window cannot open.
 //!
 //! Keeping them together buys two things. The security review has one small
 //! file to read rather than a hunt through five crates. And because this crate
@@ -14,4 +14,5 @@
 //! job.
 
 pub mod console;
+pub mod dialog;
 pub mod secret;

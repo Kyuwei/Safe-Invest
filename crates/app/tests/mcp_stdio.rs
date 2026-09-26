@@ -226,7 +226,7 @@ fn an_ai_can_play_a_whole_round_through_the_shipped_binary() {
     let dir = tempfile::tempdir().unwrap();
     let mut mcp = Session::start(dir.path());
 
-    // --- the fourteen tools are announced -------------------------------
+    // --- the tools are announced ------------------------------------------
     let tools = mcp.request("tools/list", json!({}));
     let names: Vec<&str> = tools["tools"]
         .as_array()
@@ -357,7 +357,7 @@ fn the_server_refuses_an_ambiguous_order_rather_than_guessing() {
 
     mcp.call(
         "create_game",
-        json!({ "player_name": "Léa", "player_kind": "human", "starting_cash": 1000 }),
+        json!({ "player_name": "Claude", "player_kind": "ai", "starting_cash": 1000 }),
     );
 
     let both = mcp.call_expecting_refusal(
@@ -379,8 +379,11 @@ fn acting_with_no_game_open_says_what_to_do_next() {
     assert!(message.contains("Aucune partie"), "{message}");
 }
 
+/// A person's game is theirs. An AI may read it — to comment, to explain — but
+/// an order from it is refused rather than slipped in and labelled as the
+/// person's own.
 #[test]
-fn a_human_game_needs_no_justification() {
+fn an_ai_cannot_trade_in_a_persons_game() {
     let dir = tempfile::tempdir().unwrap();
     let mut mcp = Session::start(dir.path());
 
@@ -388,13 +391,62 @@ fn a_human_game_needs_no_justification() {
         "create_game",
         json!({ "player_name": "Léa", "player_kind": "human", "starting_cash": 5000 }),
     );
-    let bought = mcp.call(
+    let refusal = mcp.call_expecting_refusal(
         "buy",
-        json!({ "symbol": "ETH", "kind": "crypto", "amount": 500 }),
+        json!({ "symbol": "ETH", "kind": "crypto", "amount": 500, "rationale": "Essai" }),
+    );
+    assert!(refusal.contains("personne"), "{refusal}");
+
+    // Reading it is still allowed.
+    let portfolio = mcp.call("get_portfolio", json!({}));
+    assert!(portfolio["positions"].as_array().unwrap().is_empty());
+}
+
+/// Each connection keeps its own game. Two AIs connected at once must not
+/// steer each other — which is what a single "current game" on disk did.
+#[test]
+fn two_connections_each_keep_their_own_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = Session::start(dir.path());
+    let mut second = Session::start(dir.path());
+
+    let a = first.call(
+        "create_game",
+        json!({ "player_name": "A", "player_kind": "ai", "starting_cash": 1000 }),
+    );
+    let b = second.call(
+        "create_game",
+        json!({ "player_name": "B", "player_kind": "ai", "starting_cash": 2000 }),
     );
 
-    assert_eq!(bought["side"], "buy");
-    assert!(bought["rationale"].is_null());
+    assert_eq!(
+        first.call("get_portfolio", json!({}))["gameId"],
+        a["gameId"]
+    );
+    assert_eq!(
+        second.call("get_portfolio", json!({}))["gameId"],
+        b["gameId"]
+    );
+}
+
+/// A client that restarts the server between two conversations finds the game
+/// it was playing without having to look it up again.
+#[test]
+fn a_restarted_server_resumes_the_game_it_was_playing() {
+    let dir = tempfile::tempdir().unwrap();
+    let game = {
+        let mut mcp = Session::start(dir.path());
+        mcp.call(
+            "create_game",
+            json!({ "player_name": "Claude", "player_kind": "ai", "starting_cash": 1000 }),
+        )
+    };
+
+    let mut mcp = Session::start(dir.path());
+    assert_eq!(
+        mcp.call("get_portfolio", json!({}))["gameId"],
+        game["gameId"]
+    );
 }
 
 #[test]
@@ -422,4 +474,93 @@ fn amounts_may_be_written_as_numbers_or_as_strings() {
     let portfolio = mcp.call("get_portfolio", json!({}));
 
     assert_eq!(portfolio["startingCash"], "10000.50");
+}
+
+/// What a client decides from `tools/list` alone: which tools only read (and
+/// may run without asking), which cannot be undone, and what shape an answer
+/// has. Strict clients refuse the whole list over an output schema that does
+/// not say "object".
+#[test]
+fn every_tool_says_what_it_touches_and_answers_an_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    let tools = mcp.request("tools/list", json!({}));
+    let tools = tools["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 16);
+
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        assert_eq!(tool["outputSchema"]["type"], "object", "{name}");
+        assert!(tool["annotations"]["title"].is_string(), "{name}");
+        assert!(tool["annotations"]["readOnlyHint"].is_boolean(), "{name}");
+    }
+
+    let by_name = |wanted: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == wanted)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(by_name("get_quotes")["annotations"]["readOnlyHint"], true);
+    assert_eq!(by_name("buy")["annotations"]["readOnlyHint"], false);
+    assert_eq!(by_name("end_game")["annotations"]["destructiveHint"], true);
+}
+
+/// A refusal is a result the model reads — with the reason and what to do —
+/// not a protocol error some clients never show it.
+#[test]
+fn a_refusal_comes_back_as_a_result_the_model_can_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    let response = mcp.raw_request(
+        "tools/call",
+        &json!({ "name": "get_portfolio", "arguments": {} }),
+    );
+    assert!(response.get("error").is_none(), "{response}");
+    let result = &response["result"];
+    assert_eq!(result["isError"], true, "{result}");
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Aucune partie"), "{text}");
+    assert!(text.contains("Conseil"), "{text}");
+}
+
+/// The history comes back bounded, with the full count beside it, and a
+/// price series comes with the five numbers that summarise it.
+#[test]
+fn long_answers_are_bounded_and_summarised() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Session::start(dir.path());
+
+    mcp.call(
+        "create_game",
+        json!({ "player_name": "Claude", "player_kind": "ai", "starting_cash": 10000 }),
+    );
+    for _ in 0..3 {
+        mcp.call(
+            "buy",
+            json!({ "symbol": "ETH", "kind": "crypto", "amount": 100, "rationale": "Achat régulier." }),
+        );
+    }
+
+    let history = mcp.call("get_trade_history", json!({ "limit": 2 }));
+    assert_eq!(history["total"], 3);
+    assert_eq!(history["count"], 2);
+
+    let prices = mcp.call(
+        "get_price_history",
+        json!({ "symbol": "BTC", "kind": "crypto", "days": 30 }),
+    );
+    let summary = &prices["summary"];
+    for field in ["first", "last", "low", "high", "changePercent"] {
+        assert!(summary[field].is_string(), "{field} : {summary}");
+    }
+
+    let invalid = mcp.call_expecting_refusal(
+        "get_quotes",
+        json!({ "symbols": ["BTC"], "kind": "crypto", "currency": "EUR&x=1" }),
+    );
+    assert!(invalid.contains("Devise invalide"), "{invalid}");
 }

@@ -7,6 +7,7 @@
 
 pub mod engine;
 pub mod factory;
+mod fsx;
 pub mod goal;
 pub mod journal;
 pub mod model;

@@ -4,7 +4,7 @@ Simulateur d'investissement pédagogique : de l'argent fictif, de vrais cours.
 
 Téléchargez **`safe-invest.exe`** et double-cliquez. C'est tout — un seul
 fichier de {SIZE} Mo, rien à installer, rien à désinstaller. Vos parties sont
-enregistrées dans `%LOCALAPPDATA%\SafeInvest`.
+enregistrées dans `%LOCALAPPDATA%\SafeInvest\data`.
 
 Windows 10 (2004 ou plus récent) et Windows 11 conviennent. L'application
 s'appuie sur *Microsoft Edge WebView2*, présent d'origine sur Windows 11 et

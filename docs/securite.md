@@ -30,10 +30,18 @@ la mémoire de l'application.
 **Délais courts.** Cinq secondes pour établir la connexion, douze pour la réponse
 complète. Une source lente est une source qu'on abandonne pour la suivante.
 
-**Les messages d'erreur ne recopient pas l'URL.** Une URL Finnhub contient la clé d'API ;
-un message d'erreur finit dans un journal ou dans une bulle à l'écran. Les erreurs de
-transport disent « connexion impossible » ou « délai dépassé », rien de plus. Un test
-vérifie qu'une clé ne peut pas apparaître dans un message.
+**Les clés ne voyagent pas dans l'URL.** Finnhub reçoit la sienne dans l'en-tête
+`X-Finnhub-Token` : une URL est la partie d'une requête que les proxys et les journaux
+recopient partout. Et les messages d'erreur ne recopient pas l'URL de toute façon : un
+message finit dans un journal ou dans une bulle à l'écran, et les erreurs de transport
+disent « connexion impossible » ou « délai dépassé », rien de plus. Un test vérifie
+qu'une clé ne peut pas apparaître dans un message.
+
+**Ce qui vient d'une IA est vérifié avant de partir.** Un symbole ou une devise saisis
+par une IA finissent dans l'URL de chaque source interrogée. Un symbole doit avoir la
+forme d'un ticker — lettres, chiffres, `. - _ = ^`, 32 caractères au plus, jamais `..` —
+et une devise trois lettres ; tout est encodé à la sortie. Un nom de joueur et une
+justification sont ramenés sur une ligne, sans caractère de contrôle, et bornés.
 
 ## Le port MCP, quand il est ouvert
 
@@ -53,7 +61,13 @@ retirer. Rien venu du réseau ne peut ouvrir la connexion.
 de la même source d'entropie qu'une clé. Il est scellé par DPAPI comme les clés d'API, il
 n'apparaît ni dans les journaux ni dans le diagnostic — qui dit seulement s'il existe —
 et la comparaison est faite en temps constant. « Régénérer le jeton » invalide l'ancien
-immédiatement.
+immédiatement : chaque connexion appartient au serveur qui l'a acceptée et se ferme avec
+lui, donc une connexion déjà ouverte — un flux d'événements, une connexion maintenue —
+ne survit pas au changement de jeton, ni à la fermeture du port. Un test garde une
+connexion ouverte pendant l'arrêt et vérifie qu'elle tombe.
+
+**Un client lent ne bloque rien.** Un client a vingt secondes pour envoyer les en-têtes
+de sa requête, et un `accept` qui échoue n'emballe pas le processeur.
 
 **L'en-tête `Host` doit nommer le bouclage.** C'est ce qui ferme le réattachement DNS :
 une page qui ferait pointer `evil.example` sur 127.0.0.1 nous atteindrait en même origine,
@@ -82,9 +96,15 @@ utilisateur courant, avec une entropie propre à l'application : un autre compte
 même machine ne peut pas la lire, même en ayant le fichier, et un autre programme ne peut
 pas substituer un blob qu'il aurait scellé lui-même.
 
-**Jamais réaffichées.** Il n'existe aucune commande pour relire une clé enregistrée.
-L'interface montre « enregistrée » et rien d'autre. Réafficher un secret n'a aucune
-utilité et crée une façon de le lire par-dessus une épaule.
+**Jamais réaffichées, jamais confiées à la page.** Il n'existe aucune commande pour relire
+une clé enregistrée. L'interface montre « enregistrée » et rien d'autre. L'écran des
+paramètres ne reçoit même pas la forme scellée : il lit une vue des préférences sans
+aucun secret, et n'envoie en retour que ce qui a changé — un changement qui contiendrait
+un champ secret est refusé. Ce qu'une page n'a jamais eu, elle ne peut pas le réécrire.
+
+**Sans fenêtre de dialogue.** DPAPI est appelé avec `CRYPTPROTECT_UI_FORBIDDEN` : le
+serveur MCP n'a aucune fenêtre où afficher une demande, et une demande qu'il ne pourrait
+pas montrer bloquerait l'appel.
 
 **Hors Windows**, il n'y a pas d'équivalent à DPAPI. La valeur est alors stockée telle
 quelle, dans un dossier limité à son propriétaire (`0700`), et **marquée comme étant en
@@ -95,6 +115,11 @@ clair** dans le fichier : les deux cas ne peuvent pas être confondus.
 **Politique de sécurité de contenu stricte.** La page ne peut charger de script,
 de style ou d'image que depuis elle-même. Pas de `unsafe-eval`, pas de source distante,
 `object-src 'none'`, `frame-ancestors 'none'`.
+
+**Chaque face désigne sa partie.** La fenêtre nomme la partie affichée à chaque appel, et
+chaque connexion MCP garde la sienne. Le moteur refuse un ordre venu d'un autre joueur
+que celui à qui appartient la partie : une IA ne peut pas trader le portefeuille d'une
+personne, un clic ne peut pas se glisser dans l'historique d'une IA.
 
 **Aucune permission de plateforme.** Le fichier de capacités n'accorde à la fenêtre que
 les commandes de cette application, plus l'ouverture d'un dossier dans l'explorateur.
@@ -110,8 +135,9 @@ fonction qui construit les éléments refuse explicitement le HTML brut.
 
 **Tout le code système au même endroit.** Le lint `unsafe_code` est actif sur tout
 l'espace de travail, et **chaque ligne `unsafe` du projet est dans le crate
-`safe-invest-platform`** : le scellement DPAPI d'une clé, et l'attachement à la console
-qui permet à un exécutable fenêtré de répondre à `--version` dans un terminal. Chacune
+`safe-invest-platform`** : le scellement DPAPI d'une clé, l'attachement à la console
+qui permet à un exécutable fenêtré de répondre à `--version` dans un terminal, et la
+boîte de message qui annonce une erreur de démarrage quand il n'y a pas de terminal. Chacune
 porte une autorisation nommée et un commentaire `SAFETY` qui dit pourquoi l'appel est
 correct.
 
@@ -157,23 +183,34 @@ Bureau et s'arrête là. Ce que la personne en fait ensuite lui appartient.
 
 **Il ne peut pas faire échouer l'application.** Un disque plein ou un dossier en lecture
 seule rend le journal indisponible, jamais le lancement impossible : les écritures sont
-silencieusement abandonnées et un message le dit au démarrage.
+silencieusement abandonnées et un message le dit au démarrage. Une rotation qui échoue
+laisse le journal écrire là où il était, et un processus qui trouve le fichier déjà
+tourné par un autre le suit au lieu de tourner une seconde fois.
+
+**Il garde la trace d'une erreur interne.** La version publiée s'arrête net sur une
+erreur interne (`panic = "abort"`). Avant, elle écrit le message et l'endroit dans le
+journal.
 
 ## Les fichiers
 
 **Écriture atomique.** Une sauvegarde est écrite dans un fichier temporaire voisin,
 synchronisée sur le disque, puis renommée par-dessus la cible. Un lecteur voit l'ancien
-contenu ou le nouveau, jamais un mélange tronqué.
+contenu ou le nouveau, jamais un mélange tronqué. Sous Windows, un renommage refusé parce
+qu'un antivirus ou l'indexeur examine le fichier est retenté quelques millisecondes plus
+tard, plutôt que de perdre l'ordre. Les réglages suivent la même règle.
 
 **Verrou entre processus.** La fenêtre et le serveur MCP écrivent le même dossier. Chaque
-cycle lire-modifier-écrire tient un verrou du système d'exploitation pour toute sa durée.
+cycle lire-modifier-écrire — une partie comme les réglages — tient un verrou du système
+d'exploitation pour toute sa durée : une case cochée dans la fenêtre ne peut plus effacer
+le jeton que le serveur vient de créer.
 Un test lance deux cents modifications concurrentes et vérifie qu'aucune ne se perd. Le
 verrou est un fichier plutôt qu'un mutex nommé : le noyau le libère même si le processus
 est tué en pleine écriture, donc un verrou oublié ne peut pas bloquer l'application.
 
 **Un fichier corrompu ne bloque rien.** Une partie illisible est ignorée et signalée dans
 le journal ; les autres restent accessibles. Un fichier de réglages illisible retombe sur
-les valeurs par défaut.
+les valeurs par défaut, et une valeur hors limites — un port sous 1024, un
+rafraîchissement de zéro seconde — est ramenée dans les bornes.
 
 ## Les dépendances
 

@@ -335,8 +335,8 @@ async fn a_plain_http_url_outside_the_loopback_is_refused() {
 
 #[tokio::test]
 async fn an_error_message_never_carries_the_url_that_held_the_api_key() {
-    // The URL contains `token=super-secret`; a leaked message would put it in
-    // a log file or a UI toast.
+    // The key travels in a header now, but a transport error must not carry
+    // it either way; a leaked message would put it in a log file or a toast.
     let provider = FinnhubProvider::new(http(), Some("super-secret".into()))
         .with_base("https://127.0.0.1:1/api");
 

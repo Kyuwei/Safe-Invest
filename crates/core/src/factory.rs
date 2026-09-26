@@ -6,12 +6,23 @@ use jiff::Timestamp;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
+/// A name is shown on a card and in a sidebar; this is already generous.
+pub const MAX_NAME_CHARS: usize = 60;
+
+/// A trillion: no teaching game needs more, and a bound keeps every sum far
+/// from the edge of what a `Decimal` can hold.
+const MAX_STARTING_CASH: i64 = 1_000_000_000_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NewGameError {
     #[error("Le capital de départ doit être strictement positif.")]
     StartingCash,
+    #[error("Le capital de départ ne peut pas dépasser 1 000 milliards.")]
+    StartingCashTooLarge,
     #[error("Le nom du joueur ne peut pas être vide.")]
     PlayerName,
+    #[error("Le nom du joueur ne peut pas dépasser {MAX_NAME_CHARS} caractères.")]
+    PlayerNameTooLong,
     #[error("La devise doit être un code à trois lettres, par exemple EUR.")]
     Currency,
     #[error("Les frais doivent être compris entre 0 % et 5 %.")]
@@ -46,18 +57,27 @@ pub fn create(request: NewGame, now: Timestamp) -> Result<GameSession, NewGameEr
         goal,
     } = request;
 
-    let player_name = player_name.trim().to_owned();
+    // Control characters out, runs of spaces folded: the name is drawn on
+    // screen and written into a file somebody may open by hand.
+    let player_name = player_name
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if player_name.is_empty() {
         return Err(NewGameError::PlayerName);
     }
-
-    let currency = currency.trim().to_uppercase();
-    if currency.len() != 3 || !currency.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Err(NewGameError::Currency);
+    if player_name.chars().count() > MAX_NAME_CHARS {
+        return Err(NewGameError::PlayerNameTooLong);
     }
+
+    let currency = crate::model::normalize_currency(&currency).ok_or(NewGameError::Currency)?;
 
     if starting_cash <= Decimal::ZERO {
         return Err(NewGameError::StartingCash);
+    }
+    if starting_cash > Decimal::from(MAX_STARTING_CASH) {
+        return Err(NewGameError::StartingCashTooLarge);
     }
 
     if fee_percent < Decimal::ZERO || fee_percent > Decimal::from(5) {

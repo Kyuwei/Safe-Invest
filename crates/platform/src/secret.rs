@@ -58,7 +58,7 @@ mod imp {
     use super::SecretError;
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
-        CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
     };
 
     /// Binds the blob to this application, so a DPAPI blob sealed by another
@@ -93,7 +93,9 @@ mod imp {
                     &raw mut entropy,
                     std::ptr::null(),
                     std::ptr::null(),
-                    0,
+                    // Never a dialog: the MCP server has no window to show one
+                    // in, and a prompt it cannot display would hang the call.
+                    CRYPTPROTECT_UI_FORBIDDEN,
                     &raw mut out,
                 )
             } else {
@@ -103,7 +105,9 @@ mod imp {
                     &raw mut entropy,
                     std::ptr::null(),
                     std::ptr::null(),
-                    0,
+                    // Never a dialog: the MCP server has no window to show one
+                    // in, and a prompt it cannot display would hang the call.
+                    CRYPTPROTECT_UI_FORBIDDEN,
                     &raw mut out,
                 )
             }

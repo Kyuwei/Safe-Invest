@@ -11,7 +11,7 @@ use crate::SafeInvestServer;
 use crate::guard::{self, Refusal};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Bytes;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -19,7 +19,9 @@ use safe_invest_service::Context;
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinSet;
 use tower_service::Service;
 
 /// The port used when nothing else is asked for.
@@ -35,6 +37,17 @@ pub const MIN_PORT: u16 = 1024;
 
 type Body = BoxBody<Bytes, Infallible>;
 
+type McpService = StreamableHttpService<SafeInvestServer, LocalSessionManager>;
+
+/// How long to wait before accepting again after `accept` failed.
+///
+/// The usual cause is running out of file handles, which does not clear on the
+/// next instruction. Looping straight back would pin a core for nothing.
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
+
+/// How long a client has to finish sending a request's headers.
+const HEADER_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Claims the port, and says so plainly when it cannot.
 ///
 /// Binding is separate from serving so a caller — the settings screen, say —
@@ -48,6 +61,11 @@ pub async fn bind(port: u16) -> std::io::Result<TcpListener> {
 }
 
 /// Serves MCP on an already-bound listener until the future is dropped.
+///
+/// Every connection belongs to this future. Dropping it — the port switched
+/// off, moved, or restarted with a new token — closes the connections already
+/// open too, event streams included. A connection spawned loose would outlive
+/// its server: still answering, and still accepting the old token.
 pub async fn serve(listener: TcpListener, context: Context, token: String) {
     let port = local_port(&listener);
 
@@ -72,38 +90,51 @@ pub async fn serve(listener: TcpListener, context: Context, token: String) {
         config,
     );
 
+    let mut connections = JoinSet::new();
     loop {
-        let Ok((stream, _peer)) = listener.accept().await else {
-            // A failed accept is usually the listener going away. Anything
-            // transient is retried by the next turn of the loop.
-            continue;
-        };
-
-        let service = service.clone();
-        let token = token.clone();
-
-        tokio::spawn(async move {
-            let handler = hyper::service::service_fn(move |request| {
-                let mut service = service.clone();
-                let token = token.clone();
-                async move {
-                    match guard::check(&request, &token) {
-                        Ok(()) => service.call(request).await,
-                        Err(refusal) => {
-                            tracing::debug!(?refusal, "requête MCP refusée");
-                            Ok(refused(refusal))
-                        }
-                    }
+        tokio::select! {
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _peer)) => {
+                    connections.spawn(connection(stream, service.clone(), token.clone()));
                 }
-            });
+                Err(error) => {
+                    tracing::debug!(%error, "connexion MCP non acceptée");
+                    tokio::time::sleep(ACCEPT_BACKOFF).await;
+                }
+            },
+            // Finished connections are collected as they end, so the set holds
+            // only the live ones however long the server runs.
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
+        }
+    }
+}
 
-            if let Err(error) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(TokioIo::new(stream), handler)
-                .await
-            {
-                tracing::debug!(%error, "connexion MCP interrompue");
+/// Answers one connection until the client closes it or the server stops.
+async fn connection(stream: TcpStream, service: McpService, token: String) {
+    let handler = hyper::service::service_fn(move |request| {
+        let mut service = service.clone();
+        let token = token.clone();
+        async move {
+            match guard::check(&request, &token) {
+                Ok(()) => service.call(request).await,
+                Err(refusal) => {
+                    tracing::debug!(?refusal, "requête MCP refusée");
+                    Ok(refused(refusal))
+                }
             }
-        });
+        }
+    });
+
+    if let Err(error) = hyper::server::conn::http1::Builder::new()
+        .timer(TokioTimer::new())
+        // A client that opens a connection and dribbles its headers holds a
+        // task and a socket for as long as it likes. Twenty seconds is far
+        // more than any local client takes.
+        .header_read_timeout(HEADER_TIMEOUT)
+        .serve_connection(TokioIo::new(stream), handler)
+        .await
+    {
+        tracing::debug!(%error, "connexion MCP interrompue");
     }
 }
 
