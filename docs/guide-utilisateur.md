@@ -25,6 +25,11 @@ L'application passe alors en mode observation : vous voyez ce que l'IA achète e
 quel cours, et surtout **pourquoi**. C'est le mode le plus intéressant à regarder à
 plusieurs : chaque décision est écrite, donc discutable.
 
+Une partie appartient à qui la joue. Dans une partie IA, la fenêtre ne passe aucun ordre ;
+dans la vôtre, une IA connectée peut lire le portefeuille mais pas y acheter ni y vendre.
+Le programme le vérifie lui-même, pas seulement l'écran. Vous gardez en revanche la main
+sur une partie IA : le bouton **Arrêter l'IA** la termine à sa valeur du moment.
+
 ### Combien ?
 
 Trois montants d'un clic (1 000, 10 000, 100 000 €) ou n'importe quelle somme au clavier.
@@ -83,7 +88,8 @@ sous le prix. Deux boutons : **Fiche** ouvre la page de l'actif, **Vendre** sold
 partie de la ligne.
 
 En partie IA, un **journal** s'intercale : chaque décision avec son heure, son montant et
-sa justification, mis à jour en direct pendant que l'IA joue dans son processus.
+sa justification, mis à jour en direct pendant que l'IA joue dans son processus. Les
+heures affichées sont celles de votre fuseau horaire.
 
 ## 4. Le marché
 
@@ -134,8 +140,15 @@ décisions datées et argumentées, qu'on peut relire et critiquer après coup.
 ## 6. La fin d'une partie
 
 Une partie se termine de trois façons&nbsp;: l'objectif est atteint, la date limite passe,
-ou vous cliquez sur **Terminer la partie**. Les deux premières sont automatiques — la
-partie s'arrête à l'évaluation qui le constate, et pas plus tard.
+ou vous cliquez sur **Terminer la partie** (**Arrêter l'IA** pour une partie IA). Les deux
+premières sont automatiques — la partie s'arrête à l'évaluation qui le constate, et pas
+plus tard.
+
+Une évaluation ne compte que si elle est **complète et réelle**&nbsp;: si une ligne n'a pu
+être cotée par aucune source, ou si un cours vient du marché simulé faute de mieux, rien
+n'est figé ni ajouté à la courbe — la prochaine évaluation complète décidera. Terminer la
+partie à la main est refusé dans ce cas, avec un message qui le dit&nbsp;: réessayez quand
+les sources répondent.
 
 **La valeur est figée à cet instant.** C'est le point important&nbsp;: le bilan raconte ce
 qui s'est passé, il ne se recalcule pas au cours du jour. Une partie gagnée à 26 140 € le
@@ -172,7 +185,8 @@ servi. La liste est dans l'ordre d'essai.
 Ces cours sont signalés partout dans l'application.
 
 **Clés API** — facultatives (voir [cles-api.md](cles-api.md)). Elles sont chiffrées avec
-votre compte Windows et ne quittent jamais la machine.
+votre compte Windows et ne quittent jamais la machine. **Supprimer** efface une clé
+enregistrée.
 
 **Palette adaptée au daltonisme** — remplace le vert et le rouge par un bleu et un orange.
 Environ un homme sur douze distingue mal le vert du rouge ; sur un écran financier, c'est
@@ -201,13 +215,23 @@ fichier au fil de l'eau. Le panneau en montre la fin ; **Exporter le journal** e
 copie complète sur votre Bureau, à joindre à un signalement.
 
 Quand quelque chose ne marche pas, c'est le premier endroit à regarder — et la seule chose
-à envoyer si vous demandez de l'aide. Aucune clé d'API ni jeton MCP n'y figure : ils sont
-remplacés par `[secret masqué]` avant même d'être écrits. Le fichier ne dépasse jamais
-deux mégaoctets et n'est envoyé nulle part : il reste sur votre machine tant que vous ne
-l'envoyez pas vous-même.
+à envoyer si vous demandez de l'aide. Chaque ligne dit quel processus l'a écrite&nbsp;:
+`[fenêtre 1234]` pour la fenêtre, `[mcp 5678]` pour un serveur MCP lancé par votre client.
+Une erreur interne y laisse aussi sa trace avant que l'application ne s'arrête. Aucune clé
+d'API ni jeton MCP n'y figure : ils sont remplacés par `[secret masqué]` avant même d'être
+écrits. Le fichier ne dépasse jamais deux mégaoctets et n'est envoyé nulle part : il reste
+sur votre machine tant que vous ne l'envoyez pas vous-même.
 
 **Ouvrir le dossier des parties** — le dossier des sauvegardes. C'est le même que lit le
-serveur MCP : c'est ce qui permet à une IA de jouer la partie que votre fenêtre affiche.
+serveur MCP : c'est ce qui permet à la fenêtre d'afficher en direct la partie qu'une IA
+est en train de jouer.
+
+## Hors ligne
+
+Sans réseau, les sources de cours ne répondent pas. Une source injoignable est laissée de
+côté une minute au lieu d'être rappelée — et attendue — à chaque rafraîchissement, et le
+marché simulé prend le relais en quelques secondes. Ces cours sont signalés comme
+simulés, et ils ne sont jamais inscrits dans la courbe ni dans le résultat d'une partie.
 
 ## Quelques idées de séances
 

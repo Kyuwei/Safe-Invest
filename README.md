@@ -31,8 +31,8 @@ Windows 10 (version 2004 ou plus récente) ou Windows 11. L'application s'appuie
 *Microsoft Edge WebView2*, présent d'origine sur Windows 11 et installé avec Edge sur
 Windows 10. S'il manque, l'application le dit et donne le lien.
 
-Vos parties sont dans `%LOCALAPPDATA%\SafeInvest`. Pour désinstaller : supprimez le
-fichier, et ce dossier si vous ne voulez rien garder.
+Vos parties sont dans `%LOCALAPPDATA%\SafeInvest\data`. Pour désinstaller : supprimez
+le fichier, et le dossier `%LOCALAPPDATA%\SafeInvest` si vous ne voulez rien garder.
 
 En cas de doute :
 
@@ -46,6 +46,10 @@ configurées et où se trouve le journal de diagnostic.
 Quand quelque chose se passe mal, ce journal est ce qu'il faut envoyer : **Paramètres →
 Journal → Exporter le journal** en dépose une copie sur le Bureau. Il ne contient ni clé
 d'API ni jeton — ils sont masqués avant écriture — et rien ne l'envoie à votre place.
+
+Si la fenêtre ne peut pas s'ouvrir du tout — WebView2 absent, dossier de données
+inaccessible —, une boîte de message le dit et donne la raison, même lancée d'un
+double-clic.
 
 > Une particularité de Windows : Safe Invest est une application fenêtrée, donc le double-clic
 > n'ouvre pas de console noire — mais en contrepartie l'invite de commandes **ne l'attend pas**.
@@ -62,12 +66,14 @@ Rust, un seul exécutable, et pas de dépendance npm dans ce qui est livré.
 | `crates/core` | Le domaine et les règles : actifs, ordres, coût moyen, frais, objectif, sauvegardes |
 | `crates/market` | Les cours réels : six sources en cascade, cache, limiteur de débit, conversion de devises |
 | `crates/service` | Les opérations, écrites une fois : créer une partie, coter, acheter, vendre |
-| `crates/mcp` | Les quatorze outils MCP, une coquille sur `service` |
+| `crates/mcp` | Les seize outils MCP, une coquille sur `service` |
 | `crates/app` | L'exécutable : la fenêtre Tauri, et le serveur MCP en sous-commande |
 
 Le point important : **la fenêtre et l'IA appellent les mêmes fonctions**. Un ordre passé
 à la souris et un ordre passé par une IA suivent les mêmes règles, les mêmes frais et les
-mêmes contrôles, parce qu'il n'existe qu'un seul chemin vers le moteur.
+mêmes contrôles, parce qu'il n'existe qu'un seul chemin vers le moteur. Et une partie
+appartient à qui la joue : le moteur refuse un ordre de l'IA dans une partie humaine, et
+un ordre de la fenêtre dans une partie IA.
 
 Un seul fichier fait les deux :
 
@@ -80,6 +86,8 @@ safe-invest.exe doctor      affiche un diagnostic
 
 Les deux modes lisent et écrivent le même dossier de parties. L'application le surveille :
 quand l'IA agit dans son processus, le tableau de bord se met à jour dans la seconde.
+Chacun désigne sa partie — la fenêtre celle qu'elle affiche, chaque connexion MCP la
+sienne —, si bien qu'ouvrir une partie d'un côté ne déplace jamais l'autre.
 
 ### Les cours
 
@@ -115,8 +123,10 @@ Dans la configuration de votre client MCP :
 }
 ```
 
-Le serveur expose quatorze outils : créer une partie, chercher un actif, lire les cours et
-l'historique, acheter, vendre, suivre l'objectif.
+Le serveur expose seize outils : créer une partie, chercher un actif, lire les cours et
+l'historique, acheter, vendre, suivre l'objectif, terminer et lire le bilan. Chacun
+déclare s'il ne fait que lire ou s'il agit, et un refus revient comme un résultat que le
+modèle lit — la raison et un conseil — plutôt que comme une erreur de protocole.
 
 Si votre client préfère une adresse à un chemin d'exécutable, les Paramètres ouvrent le
 même serveur sur un port de bouclage — `http://127.0.0.1:9800/mcp` par défaut, derrière un
@@ -124,7 +134,8 @@ jeton, refusé à toute origine qui n'est pas la machine elle-même.
 
 En partie IA, `buy` et `sell` **refusent** un ordre sans justification. C'est délibéré :
 tout l'intérêt du mode IA tient à ce que l'historique se lise comme une suite de décisions
-expliquées.
+expliquées. Une IA ne passe d'ordres que dans une partie IA ; une partie humaine, elle
+peut seulement la lire.
 
 Liste complète des outils et exemples : [`docs/mcp.md`](docs/mcp.md).
 
@@ -142,7 +153,7 @@ Il faut Rust — la chaîne exacte est épinglée dans `rust-toolchain.toml`, `r
 l'installe tout seul.
 
 ```bash
-cargo test --workspace          # 141 tests, sans réseau
+cargo test --workspace          # plus de 200 tests, sans réseau
 node --test crates/app/ui/tests/*.test.js   # les tests de l'interface
 cargo clippy --workspace --all-targets
 cargo fmt --all
@@ -180,9 +191,11 @@ python3 scripts/generate-icons.py # régénère l'icône
 
 Les tests couvrent les règles qu'un joueur pourrait voir se casser : l'argent conservé sur
 un aller-retour, l'achat « pour 100 € » qui ne dépasse jamais 100 €, l'IA à qui l'on
-refuse un ordre qu'elle ne justifie pas, un actif non coté signalé plutôt que valorisé à
-zéro, et deux cents écritures concurrentes qui arrivent toutes. Un test lance le vrai
-binaire et joue une partie entière par-dessus les tuyaux MCP.
+refuse un ordre qu'elle ne justifie pas — ou qu'elle passerait dans la partie d'une
+personne —, un actif non coté signalé plutôt que valorisé à zéro et jamais figé dans un
+résultat, et deux cents écritures concurrentes qui arrivent toutes. Des tests lancent le
+vrai binaire et jouent une partie entière par-dessus les tuyaux MCP, à deux clients à la
+fois.
 
 ### Publier une version
 

@@ -58,7 +58,7 @@ safe-invest.exe mcp --http --port 9810
 ```
 
 Le port n'est ouvert que tant que la fenêtre — ou cette commande — tourne. Le mode
-stdio reste disponible en parallèle, et sert exactement les mêmes quatorze outils.
+stdio reste disponible en parallèle, et sert exactement les mêmes seize outils.
 
 > Un port est un nombre de seize bits : **1024 à 65535**. 98 000 n'en est pas un, et
 > l'application le dit plutôt que de le tronquer.
@@ -78,7 +78,9 @@ Aucune réponse ne porte d'en-tête CORS, jamais : un navigateur à qui l'on n'a
 rien ne peut rien lire. Le jeton est stocké chiffré (DPAPI sous Windows), il n'apparaît
 ni dans les journaux ni dans le diagnostic, et « Régénérer le jeton » invalide
 immédiatement l'ancien — c'est ce qu'il faut faire si vous l'avez collé quelque part
-par erreur.
+par erreur. Les connexions déjà ouvertes sont fermées avec l'ancien serveur, flux
+d'événements compris : aucune ne continue avec l'ancien jeton. Il en va de même quand on
+décoche la case ou qu'on change de port.
 
 ## Vérifier que ça marche
 
@@ -97,7 +99,13 @@ diagnostic s'affiche bien, parfois juste après le retour du prompt. Utilisez
 concerne que les sous-commandes console — un client MCP, lui, communique par des tuyaux
 et attend correctement.
 
-## Les quatorze outils
+## Les seize outils
+
+Chaque outil déclare ses **annotations** : un titre, s'il ne fait que lire
+(`readOnlyHint`), s'il est irréversible (`destructiveHint`, vrai pour `end_game`) et s'il
+interroge le réseau (`openWorldHint`). Un client peut ainsi laisser passer les dix outils
+de lecture sans demander, et réserver ses confirmations à ceux qui agissent. Chaque
+réponse est un objet JSON (`outputSchema` de type `object`).
 
 ### Parties
 
@@ -115,7 +123,7 @@ et attend correctement.
 |---|---|
 | `get_portfolio` | Trésorerie, positions cotées au marché, plus-values latentes et réalisées |
 | `get_goal_progress` | Avancement, jours restants, rendement encore nécessaire |
-| `get_trade_history` | Historique daté, avec la justification de chaque opération |
+| `get_trade_history` | Historique daté, avec la justification de chaque opération — les 50 plus récentes par défaut (`limit` jusqu'à 500), et `total` |
 | `get_market_sources` | Quelle source répond, laquelle est en échec et pourquoi |
 | `get_summary` | Bilan d'une partie terminée : résultat, meilleur et pire trade, leçon |
 
@@ -125,8 +133,8 @@ et attend correctement.
 |---|---|
 | `search_assets` | Cherche par symbole ou par nom |
 | `list_popular_assets` | Le catalogue intégré : cryptos, actions, ETF connus |
-| `get_quotes` | Cours actuels, avec leur source et le drapeau « simulé » |
-| `get_price_history` | Clôtures quotidiennes, pour juger une tendance |
+| `get_quotes` | Cours actuels, avec leur source et le drapeau « simulé » — 25 symboles au plus par appel |
+| `get_price_history` | Clôtures quotidiennes, pour juger une tendance, avec un `summary` : premier, dernier, plus bas, plus haut, variation en % |
 
 ### Ordres
 
@@ -135,9 +143,15 @@ et attend correctement.
 | `buy` | Achète une quantité (`quantity`) ou pour une somme (`amount`, frais compris) |
 | `sell` | Vend une quantité, de quoi dégager une somme, ou tout (`all: true`) |
 
-## La règle qui compte
+## Les règles qui comptent
 
-En partie IA, `buy` et `sell` **refusent** un ordre sans `rationale` :
+**Une IA ne joue que les parties IA.** Elle peut lire une partie humaine — la commenter,
+l'expliquer — mais `buy`, `sell`, `set_goal` et `end_game` y sont refusés. Une partie
+appartient à qui la joue : la fenêtre, elle, n'observe qu'une partie IA, sans y passer
+d'ordre (la personne peut toutefois l'arrêter).
+
+**Chaque ordre est justifié.** En partie IA, `buy` et `sell` **refusent** un ordre sans
+`rationale` (1000 caractères au plus, ramenés sur une ligne) :
 
 ```json
 {
@@ -193,19 +207,30 @@ exactement la même valeur ; la chaîne évite qu'un flottant arrondisse une dé
 **Les dates** acceptent `2027-12-31` — la fin de cette journée — ou un horodatage
 complet `2027-12-31T18:00:00Z`.
 
-**`game_id`** est facultatif partout : sans lui, l'outil agit sur la partie courante,
-celle qu'a fixée `create_game` ou `open_game`.
+**`game_id`** est facultatif partout : sans lui, l'outil agit sur la partie courante
+**de cette connexion**, celle qu'a fixée `create_game` ou `open_game`. Chaque client a la
+sienne — deux IA branchées en même temps ne se déplacent pas l'une l'autre, et ouvrir une
+partie dans la fenêtre ne change pas celle de l'IA. Un serveur relancé reprend la
+dernière partie que l'IA avait ouverte.
+
+**Les symboles** sont ceux des marchés : lettres, chiffres et `. - _ = ^` (`AIR.PA`,
+`BRK-B`, `^GSPC`), 32 caractères au plus. **Les devises** sont des codes à trois lettres.
 
 **Les types d'actif** sont `crypto`, `stock` ou `etf`.
 
 ## Quand un outil refuse
 
-Une erreur porte une phrase et souvent une suggestion :
+Un refus revient comme un **résultat en erreur** (`isError: true`), que le modèle lit,
+et non comme une erreur de protocole que certains clients lui cachent. Il porte une
+phrase et souvent un conseil :
 
 ```
 Aucune partie n'est ouverte.
-  hint: Appelez `list_games` puis `open_game`, ou `create_game` pour en démarrer une.
+Conseil : Appelez `list_games` puis `open_game`, ou `create_game` pour en démarrer une.
 ```
+
+Seul un appel mal formé — un argument manquant, un type faux — produit une erreur de
+protocole.
 
 Les refus les plus courants :
 
@@ -216,6 +241,8 @@ Les refus les plus courants :
 | « Aucune position sur X » | On ne peut pas vendre ce qu'on ne détient pas |
 | « Aucun cours disponible » | Voir `get_market_sources` ; réessayer plus tard |
 | « Précisez une seule façon de dimensionner » | `quantity` **ou** `amount`, pas les deux |
+| « Cette partie appartient à une personne » | Créer ou ouvrir une partie `player_kind: "ai"` |
+| « Le portefeuille ne peut pas être évalué complètement » | Une ligne n'a pas de cours : réessayer quand les sources répondent |
 
 ## Ce que l'IA voit, et ce qu'elle ne peut pas faire
 

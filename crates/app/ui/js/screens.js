@@ -774,7 +774,9 @@ export function renderKeyForm(configured, { onSave, onClear }) {
     const input = el("input", {
       type: "password",
       autocomplete: "off",
-      placeholder: configured.includes(id) ? "•••••••• (enregistrée)" : "coller la clé ici",
+      // The badge beside the name already says it is stored; the field only
+      // has room for the dots once « Supprimer » sits next to it.
+      placeholder: configured.includes(id) ? "••••••••" : "coller la clé ici",
     });
 
     form.append(
