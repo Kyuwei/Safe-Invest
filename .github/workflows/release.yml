@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version à publier, par exemple 0.2.0"
+        description: "Version à publier — celle de Cargo.toml, par exemple 0.3.0"
         required: true
         type: string
 
@@ -44,7 +44,11 @@ jobs:
         run: |
           $declared = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
           if ($declared -ne "${{ steps.version.outputs.version }}") {
-            throw "Cargo.toml annonce $declared mais la release vise ${{ steps.version.outputs.version }}"
+            # Say what to do, not only what is wrong: the fix is a commit on
+            # main, and the person reading this is about to make it.
+            throw ("Cargo.toml annonce $declared mais la release vise ${{ steps.version.outputs.version }}. " +
+                   "Passez d'abord la version à ${{ steps.version.outputs.version }} dans Cargo.toml " +
+                   "et crates/app/tauri.conf.json, poussez sur main, puis relancez la release.")
           }
 
       - name: Chaîne d'outils
