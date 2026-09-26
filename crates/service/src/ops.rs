@@ -232,16 +232,26 @@ impl Context {
 
         let snapshot = valuation::snapshot(&session, &quotes, now);
         let goal = goal::evaluate(&session, &snapshot, now);
+        let trustworthy = self.is_trustworthy(&snapshot).await;
 
         // A goal that has been met, or a deadline that has gone by, ends the
         // game here — at the valuation that decided it. Waiting for someone to
         // press a button would let the recorded result drift away from the one
         // that was actually reached.
-        let ending = goal.as_ref().and_then(|progress| match progress.status {
-            GoalStatus::Achieved => Some(EndReason::GoalReached),
-            GoalStatus::Expired => Some(EndReason::DeadlinePassed),
-            GoalStatus::OnTrack | GoalStatus::Behind => None,
-        });
+        //
+        // But only on a valuation worth keeping. A line no source could price
+        // drops out of the total, and a fallback to the simulator invents its
+        // price; freezing either as the result of the game — or drawing it on
+        // the curve — would write down a number that never existed. The next
+        // complete valuation decides instead.
+        let ending =
+            goal.as_ref()
+                .filter(|_| trustworthy)
+                .and_then(|progress| match progress.status {
+                    GoalStatus::Achieved => Some(EndReason::GoalReached),
+                    GoalStatus::Expired => Some(EndReason::DeadlinePassed),
+                    GoalStatus::OnTrack | GoalStatus::Behind => None,
+                });
 
         // The curve is recorded as the portfolio is valued, never reconstructed
         // afterwards: a reconstruction would have to invent prices nobody wrote
@@ -252,7 +262,7 @@ impl Context {
         let updated = self
             .store()
             .mutate_if(session.id, |stored| {
-                let kept = stored.record_value(now, snapshot.total_value);
+                let kept = trustworthy && stored.record_value(now, snapshot.total_value);
                 let ended =
                     ending.is_some_and(|reason| stored.finish(reason, snapshot.total_value, now));
                 let changed = kept || ended;
@@ -261,7 +271,13 @@ impl Context {
                     changed,
                 ))
             })
-            .unwrap_or(None);
+            // The valuation itself is still worth showing; losing one reading
+            // of the curve is not worth failing the call for, but it is worth
+            // knowing about.
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, game = %session.id, "relevé du portefeuille non enregistré");
+                None
+            });
         if let Some((history, outcome)) = updated {
             session.value_history = history;
             session.outcome = outcome;
@@ -295,6 +311,14 @@ impl Context {
         }
 
         let report = self.portfolio(id, now).await?;
+        if report.session.is_over() {
+            return Ok(report.session);
+        }
+        if !self.is_trustworthy(&report.snapshot).await {
+            return Err(ServiceError::Unvalued {
+                symbols: report.snapshot.unpriced_symbols.join(", "),
+            });
+        }
         let value = report.snapshot.total_value;
 
         self.store().mutate(id, |session| {
@@ -313,12 +337,13 @@ impl Context {
         })
     }
 
-    pub async fn goal_progress(
-        &self,
-        id: Uuid,
-        now: Timestamp,
-    ) -> ServiceResult<Option<GoalProgress>> {
-        Ok(self.portfolio(id, now).await?.goal)
+    /// Whether a valuation is complete and real enough to be written down.
+    ///
+    /// Every line priced, and no price invented — unless inventing prices is
+    /// the whole point, in demonstration mode.
+    async fn is_trustworthy(&self, snapshot: &PortfolioSnapshot) -> bool {
+        snapshot.unpriced_symbols.is_empty()
+            && (!snapshot.contains_simulated_prices || self.market().await.is_simulation_forced())
     }
 
     /// Trade history, newest first, capped at `limit`.
@@ -496,5 +521,186 @@ fn settings_error(error: SettingsError) -> ServiceError {
     match error {
         SettingsError::Rejected(message) => ServiceError::Rejected(message),
         other => ServiceError::Storage(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a test that trips is a test that failed"
+)]
+mod tests {
+    use super::*;
+    use crate::ContextConfig;
+    use safe_invest_market::providers::simulated::SimulatedProvider;
+    use safe_invest_market::{ChainOptions, MarketDataService, fx::FxRates, http::HttpClient};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn at(text: &str) -> Timestamp {
+        text.parse().unwrap()
+    }
+
+    /// A market whose only source is the simulator. With `forced` it is demo
+    /// mode; without, every price it gives is a fallback.
+    fn market(
+        sources: Vec<Arc<dyn safe_invest_market::QuoteProvider>>,
+        forced: bool,
+    ) -> MarketDataService {
+        let order = AssetKind::ALL
+            .into_iter()
+            .map(|kind| (kind, vec!["simulated".to_owned()]))
+            .collect();
+        MarketDataService::with_providers(
+            sources,
+            ChainOptions {
+                order,
+                force_simulated: forced,
+                cache_ttl: Duration::from_secs(60),
+            },
+            FxRates::new(HttpClient::new().unwrap()),
+        )
+    }
+
+    /// An AI game holding some BTC, with a goal whose deadline is a day away.
+    async fn game_with_a_position(context: &Context) -> Uuid {
+        let start = at("2026-03-01T10:00:00Z");
+        let session = context
+            .create_game(
+                NewGameRequest {
+                    player_name: "Claude".into(),
+                    player_kind: PlayerKind::Ai,
+                    starting_cash: Decimal::from(1000),
+                    currency: Some("EUR".into()),
+                    fee_percent: None,
+                    target_amount: Some(Decimal::from(1_000_000)),
+                    deadline: Some(at("2026-03-02T10:00:00Z")),
+                },
+                start,
+            )
+            .unwrap();
+        context
+            .buy(
+                BuyRequest {
+                    game_id: session.id,
+                    actor: PlayerKind::Ai,
+                    symbol: "BTC".into(),
+                    kind: AssetKind::Crypto,
+                    sizing: TradeSizing::Amount(Decimal::from(500)),
+                    rationale: Some("Une position pour le test.".into()),
+                },
+                start,
+            )
+            .await
+            .unwrap();
+        session.id
+    }
+
+    fn demo_context() -> (tempfile::TempDir, Context) {
+        let dir = tempfile::tempdir().unwrap();
+        let context = Context::new(&ContextConfig {
+            data_dir: Some(dir.path().to_path_buf()),
+            force_simulated: true,
+        })
+        .unwrap();
+        (dir, context)
+    }
+
+    /// The deadline has passed, but a line cannot be priced: freezing the
+    /// total now would record a result that leaves that line out.
+    #[tokio::test]
+    async fn a_game_is_not_frozen_on_a_valuation_that_misses_a_line() {
+        let (_dir, context) = demo_context();
+        let id = game_with_a_position(&context).await;
+        let before = context.load_game(id).unwrap().value_history.len();
+
+        context.replace_market(market(Vec::new(), false)).await;
+        let late = at("2026-03-05T10:00:00Z");
+        let report = context.portfolio(id, late).await.unwrap();
+
+        assert!(!report.snapshot.unpriced_symbols.is_empty());
+        let stored = context.load_game(id).unwrap();
+        assert!(
+            stored.outcome.is_none(),
+            "la partie a été figée sur un total incomplet"
+        );
+        assert_eq!(
+            stored.value_history.len(),
+            before,
+            "un relevé incomplet a été tracé"
+        );
+
+        let refused = context
+            .end_game(id, PlayerKind::Human, late)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(refused, ServiceError::Unvalued { .. }),
+            "{refused}"
+        );
+
+        // Once every line is priced again, the deadline does its work.
+        context
+            .replace_market(market(vec![Arc::new(SimulatedProvider::new())], true))
+            .await;
+        context.portfolio(id, late).await.unwrap();
+        let ended = context.load_game(id).unwrap().outcome.unwrap();
+        assert_eq!(ended.reason, EndReason::DeadlinePassed);
+    }
+
+    /// Outside demo mode, a simulated price is a stand-in for a source that
+    /// failed. It is shown, flagged — but never written into the record.
+    #[tokio::test]
+    async fn a_fallback_price_is_never_written_into_the_record() {
+        let (_dir, context) = demo_context();
+        let id = game_with_a_position(&context).await;
+        let before = context.load_game(id).unwrap().value_history.len();
+
+        context
+            .replace_market(market(vec![Arc::new(SimulatedProvider::new())], false))
+            .await;
+        let late = at("2026-03-05T10:00:00Z");
+        let report = context.portfolio(id, late).await.unwrap();
+
+        assert!(report.snapshot.contains_simulated_prices);
+        let stored = context.load_game(id).unwrap();
+        assert!(stored.outcome.is_none());
+        assert_eq!(stored.value_history.len(), before);
+    }
+
+    /// A person supervises an AI game and may stop it; an AI may not stop a
+    /// person's.
+    #[tokio::test]
+    async fn only_the_supervisor_may_stop_someone_elses_game() {
+        let (_dir, context) = demo_context();
+        let now = at("2026-03-01T10:00:00Z");
+
+        let ai = game_with_a_position(&context).await;
+        let stopped = context.end_game(ai, PlayerKind::Human, now).await.unwrap();
+        assert!(stopped.is_over());
+
+        let person = context
+            .create_game(
+                NewGameRequest {
+                    player_name: "Léa".into(),
+                    player_kind: PlayerKind::Human,
+                    starting_cash: Decimal::from(1000),
+                    currency: None,
+                    fee_percent: None,
+                    target_amount: None,
+                    deadline: None,
+                },
+                now,
+            )
+            .unwrap();
+        assert!(
+            context
+                .end_game(person.id, PlayerKind::Ai, now)
+                .await
+                .is_err()
+        );
+        assert!(!context.load_game(person.id).unwrap().is_over());
     }
 }

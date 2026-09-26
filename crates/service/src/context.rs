@@ -100,6 +100,13 @@ impl Context {
         *self.market.write().await = Arc::new(rebuilt);
         Ok(())
     }
+
+    /// Puts a hand-built market in place, for tests that need a source to
+    /// fail or to fall back.
+    #[cfg(test)]
+    pub(crate) async fn replace_market(&self, market: MarketDataService) {
+        *self.market.write().await = Arc::new(market);
+    }
 }
 
 fn build_market(

@@ -26,6 +26,13 @@ pub enum ServiceError {
     #[error("Actif inconnu : {query}")]
     UnknownAsset { query: String },
 
+    #[error(
+        "Le portefeuille ne peut pas être évalué complètement en ce moment{}. \
+         Le résultat n'est pas figé sur une valeur incomplète ou inventée.",
+        if symbols.is_empty() { String::new() } else { format!(" (aucun cours pour {symbols})") }
+    )]
+    Unvalued { symbols: String },
+
     #[error("Erreur de stockage : {0}")]
     Storage(String),
 }
@@ -46,6 +53,9 @@ impl ServiceError {
             Self::UnknownAsset { .. } => {
                 Some("Cherchez d'abord le symbole exact avec `search_assets`.")
             }
+            Self::Unvalued { .. } => Some(
+                "Réessayez dans un instant, quand les sources de cours répondent ; `get_market_sources` dit laquelle manque.",
+            ),
             Self::Rejected(_) => None,
             Self::Storage(_) => {
                 Some("Vérifiez que le dossier de données est accessible en écriture.")

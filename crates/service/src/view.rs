@@ -784,21 +784,32 @@ pub fn quantity(value: Decimal) -> String {
     grouped(trimmed, decimals as usize)
 }
 
+/// A moment as the person at the screen reads a clock: in their own time zone.
+///
+/// A `Timestamp` formats as UTC, which put every trade an hour or two off for
+/// someone in France — enough to make "I bought at 16:30" look like a bug.
+/// The MCP answers keep RFC 3339 in UTC, which is what a program wants.
 pub fn datetime(at: Timestamp) -> String {
-    at.strftime("%d/%m/%Y %H:%M").to_string()
+    in_zone(at, &jiff::tz::TimeZone::system(), "%d/%m/%Y %H:%M")
 }
 
 pub fn date(at: Timestamp) -> String {
-    at.strftime("%d/%m/%Y").to_string()
+    in_zone(at, &jiff::tz::TimeZone::system(), "%d/%m/%Y")
 }
 
-fn symbol_for(currency: &str) -> &str {
-    match currency.to_uppercase().as_str() {
-        "EUR" => "€",
-        "USD" => "$",
-        "GBP" => "£",
-        "CHF" => "CHF",
-        _ => "",
+fn in_zone(at: Timestamp, zone: &jiff::tz::TimeZone, format: &str) -> String {
+    at.to_zoned(zone.clone()).strftime(format).to_string()
+}
+
+/// The sign printed after an amount: the symbol when there is a familiar one,
+/// the ISO code otherwise — never nothing, which read as a bare number.
+fn symbol_for(currency: &str) -> String {
+    let code = currency.trim().to_uppercase();
+    match code.as_str() {
+        "EUR" => "€".to_owned(),
+        "USD" => "$".to_owned(),
+        "GBP" => "£".to_owned(),
+        _ => code,
     }
 }
 
@@ -911,8 +922,22 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_currency_prints_the_number_without_inventing_a_symbol() {
-        assert_eq!(money(d("10"), "JPY"), "10,00 ");
+    fn an_unknown_currency_is_named_by_its_code() {
+        assert_eq!(money(d("10"), "JPY"), "10,00 JPY");
+        assert_eq!(money(d("10"), "chf"), "10,00 CHF");
+    }
+
+    /// Noon UTC in January is one in the afternoon in Paris. The screen shows
+    /// the second.
+    #[test]
+    fn a_moment_is_shown_in_the_time_zone_it_is_read_in() {
+        let at: Timestamp = "2026-01-15T12:00:00Z".parse().unwrap();
+        let paris = jiff::tz::TimeZone::get("Europe/Paris").unwrap();
+        assert_eq!(in_zone(at, &paris, "%d/%m/%Y %H:%M"), "15/01/2026 13:00");
+        assert_eq!(
+            in_zone(at, &jiff::tz::TimeZone::UTC, "%d/%m/%Y %H:%M"),
+            "15/01/2026 12:00"
+        );
     }
 
     #[test]

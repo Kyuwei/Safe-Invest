@@ -329,6 +329,12 @@ impl MarketDataService {
             .collect()
     }
 
+    /// True when every price comes from the simulator by choice — demo mode —
+    /// rather than as a fallback.
+    pub fn is_simulation_forced(&self) -> bool {
+        self.force_simulated
+    }
+
     /// The exchange-rate table, so a caller can pre-seed a known rate.
     pub fn fx(&self) -> &FxRates {
         &self.fx

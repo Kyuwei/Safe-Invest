@@ -359,7 +359,7 @@ impl SafeInvestServer {
                 "sourceId": p.source_id,
                 "isSimulated": p.is_simulated,
             })).collect::<Vec<_>>(),
-            "goal": report.goal.as_ref().map(goal_json),
+            "goal": report.goal.as_ref().map(|goal| goal_json(goal, &snapshot.currency)),
             // Present means the game is over and every order will be refused.
             "outcome": report.session.outcome.map(|outcome| json!({
                 "endedAt": outcome.ended_at.to_string(),
@@ -409,14 +409,14 @@ impl SafeInvestServer {
         Parameters(args): Parameters<GameRef>,
     ) -> Result<Json<Value>, ErrorData> {
         let id = self.game(args.game_id.as_deref())?;
-        let progress = self
+        let report = self
             .context
-            .goal_progress(id, jiff::Timestamp::now())
+            .portfolio(id, jiff::Timestamp::now())
             .await
             .map_err(|e| to_error(&e))?;
 
-        Ok(Json(match progress {
-            Some(progress) => goal_json(&progress),
+        Ok(Json(match &report.goal {
+            Some(progress) => goal_json(progress, &report.session.currency),
             None => json!({ "goal": null, "message": "Cette partie n'a pas d'objectif." }),
         }))
     }
@@ -770,7 +770,7 @@ fn asset_json(asset: &safe_invest_core::model::Asset) -> Value {
     })
 }
 
-fn goal_json(progress: &safe_invest_core::model::GoalProgress) -> Value {
+fn goal_json(progress: &safe_invest_core::model::GoalProgress, currency: &str) -> Value {
     json!({
         "targetAmount": progress.target_amount.to_string(),
         "deadline": progress.deadline.to_string(),
@@ -779,7 +779,7 @@ fn goal_json(progress: &safe_invest_core::model::GoalProgress) -> Value {
         "amountRemaining": progress.amount_remaining.to_string(),
         "daysRemaining": progress.days_remaining,
         "status": progress.status,
-        "statusLabel": view::goal(progress, "EUR").status_label,
+        "statusLabel": view::goal(progress, currency).status_label,
         "requiredAnnualisedReturnPercent": progress
             .required_annualised_return_percent
             .map(|v| v.to_string()),
