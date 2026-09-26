@@ -285,3 +285,51 @@ async fn no_response_ever_grants_a_browser_permission() {
         );
     }
 }
+
+/// Switching the port off, moving it, or regenerating the token all come down
+/// to dropping the server. A connection that outlived it would keep answering
+/// with the old token — so an open one has to close with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_the_server_closes_the_connections_already_open() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let context = Context::new(&ContextConfig {
+        data_dir: Some(dir.path().to_path_buf()),
+        force_simulated: true,
+    })
+    .unwrap();
+    let listener = http::bind(0).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(http::serve(listener, context, TOKEN.to_owned()));
+
+    // A keep-alive connection that has had one answer and stays open.
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    stream
+        .write_all(b"GET /ailleurs HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .await
+        .unwrap();
+    let mut answer = Vec::new();
+    let mut chunk = [0_u8; 512];
+    while !String::from_utf8_lossy(&answer).contains("Not found") {
+        let read = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut chunk))
+            .await
+            .expect("pas de réponse")
+            .unwrap();
+        assert!(read > 0, "la connexion s'est fermée avant de répondre");
+        answer.extend_from_slice(&chunk[..read]);
+    }
+
+    server.abort();
+    let _ = server.await;
+
+    let after = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut chunk))
+        .await
+        .expect("la connexion est restée ouverte après l'arrêt du serveur");
+    assert!(
+        matches!(after, Ok(0) | Err(_)),
+        "la connexion répond encore : {after:?}"
+    );
+}

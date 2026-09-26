@@ -51,6 +51,10 @@ impl Drop for Running {
 pub struct McpPort {
     running: Mutex<Option<Running>>,
     problem: Mutex<Option<String>>,
+    /// One change at a time. The start-up reconcile and a settings save can
+    /// otherwise race: both see nothing running, both bind, and the loser
+    /// reports the port as taken — by the winner.
+    turn: tokio::sync::Mutex<()>,
 }
 
 impl McpPort {
@@ -59,6 +63,20 @@ impl McpPort {
     /// Safe to call on every settings save: already serving the right port is
     /// a no-op, a different port is a move, and disabled is a stop.
     pub async fn reconcile(&self, context: &Context) -> PortStatus {
+        let _turn = self.turn.lock().await;
+        self.reconcile_now(context).await
+    }
+
+    /// Stops the server and starts it again from the current settings — how
+    /// a new token takes effect. The connections still open are closed with
+    /// the old server, so the old token stops working at once.
+    pub async fn restart(&self, context: &Context) -> PortStatus {
+        let _turn = self.turn.lock().await;
+        self.stop();
+        self.reconcile_now(context).await
+    }
+
+    async fn reconcile_now(&self, context: &Context) -> PortStatus {
         let settings = context.settings();
 
         if !settings.mcp_http_enabled {
@@ -131,11 +149,6 @@ impl McpPort {
             *slot = Some(running);
         }
         self.clear_problem();
-    }
-
-    /// Drops the running server so the next `reconcile` starts a fresh one.
-    pub fn stop_for_restart(&self) {
-        self.stop();
     }
 
     fn stop(&self) {

@@ -192,6 +192,35 @@ impl Asset {
     pub fn normalize(symbol: &str) -> String {
         symbol.trim().to_uppercase()
     }
+
+    /// Whether `symbol` has the shape of a ticker.
+    ///
+    /// A symbol ends up in the URL of every source that is asked about it, and
+    /// an AI can type anything. Letters and digits, plus the few marks real
+    /// tickers use — `BRK-B`, `AIR.PA`, `EURUSD=X`, `^GSPC`, `USD_T` — and
+    /// nothing that could climb a path (`..`) or run on without end.
+    pub fn is_valid_symbol(symbol: &str) -> bool {
+        let symbol = symbol.trim();
+        !symbol.is_empty()
+            && symbol.chars().count() <= MAX_SYMBOL_CHARS
+            && !symbol.starts_with('.')
+            && !symbol.contains("..")
+            && symbol
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | '=' | '^'))
+    }
+}
+
+/// Longer than any ticker a market uses.
+pub const MAX_SYMBOL_CHARS: usize = 32;
+
+/// A currency code, upper-cased, when `code` is one: three ASCII letters.
+///
+/// Checked wherever a currency arrives from outside, because it is spliced
+/// into the query of every rate and quote request made in it.
+pub fn normalize_currency(code: &str) -> Option<String> {
+    let code = code.trim().to_ascii_uppercase();
+    (code.len() == 3 && code.chars().all(|c| c.is_ascii_alphabetic())).then_some(code)
 }
 
 /// A price at a point in time, and — just as important — where it came from.

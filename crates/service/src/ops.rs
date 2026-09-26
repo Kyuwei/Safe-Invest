@@ -423,9 +423,9 @@ impl Context {
     /// the catalogue when it knows the symbol.
     pub fn resolve_asset(&self, kind: AssetKind, symbol: &str) -> ServiceResult<Asset> {
         let symbol = symbol.trim();
-        if symbol.is_empty() {
+        if !Asset::is_valid_symbol(symbol) {
             return Err(ServiceError::UnknownAsset {
-                query: symbol.to_owned(),
+                query: symbol.chars().take(40).collect(),
             });
         }
 

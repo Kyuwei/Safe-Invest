@@ -13,6 +13,11 @@ use serde_json::Value;
 
 pub const ID: &str = "finnhub";
 
+/// Finnhub accepts the key as a header as well as in the query string. The
+/// header is the one that stays out of proxy logs and browser-style history:
+/// a URL is the part of a request that gets written down everywhere.
+const TOKEN_HEADER: &str = "X-Finnhub-Token";
+
 const BASE: &str = "https://finnhub.io/api/v1";
 const PER_MINUTE: u32 = 55;
 const CONCURRENCY: usize = 6;
@@ -113,13 +118,8 @@ impl QuoteProvider for FinnhubProvider {
                     .provider_id
                     .clone()
                     .unwrap_or_else(|| asset.symbol.clone());
-                let url = format!(
-                    "{}/quote?symbol={}&token={}",
-                    self.base,
-                    urlencode(&symbol),
-                    urlencode(key)
-                );
-                let body: Value = self.http.get_json(ID, &url, &[]).await?;
+                let url = format!("{}/quote?symbol={}", self.base, urlencode(&symbol));
+                let body: Value = self.http.get_json(ID, &url, &[(TOKEN_HEADER, key)]).await?;
                 Ok(Self::quote_from(asset, &body))
             })
             .collect();
@@ -134,13 +134,8 @@ impl QuoteProvider for FinnhubProvider {
         let key = self.key()?;
         self.budget().await?;
 
-        let url = format!(
-            "{}/search?q={}&token={}",
-            self.base,
-            urlencode(query.trim()),
-            urlencode(key)
-        );
-        let body: Value = self.http.get_json(ID, &url, &[]).await?;
+        let url = format!("{}/search?q={}", self.base, urlencode(query.trim()));
+        let body: Value = self.http.get_json(ID, &url, &[(TOKEN_HEADER, key)]).await?;
 
         let Some(list) = body.get("result").and_then(Value::as_array) else {
             return Ok(Vec::new());

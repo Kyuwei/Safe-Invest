@@ -86,9 +86,10 @@ impl QuoteProvider for CoinMarketCapProvider {
         let symbols: Vec<String> = crypto.iter().map(|a| a.symbol.clone()).collect();
         let convert = currency.to_uppercase();
         let url = format!(
-            "{}/v2/cryptocurrency/quotes/latest?symbol={}&convert={convert}",
+            "{}/v2/cryptocurrency/quotes/latest?symbol={}&convert={}",
             self.base,
-            urlencode(&symbols.join(","))
+            urlencode(&symbols.join(",")),
+            urlencode(&convert)
         );
 
         let body: Value = self

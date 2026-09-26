@@ -588,8 +588,7 @@ pub async fn regenerate_mcp_token(
     let token = context.settings_service().regenerate_mcp_token()?;
     // The running server still holds the old token in memory, so it has to be
     // restarted or the new one would not work until the next launch.
-    port.stop_for_restart();
-    port.reconcile(&context).await;
+    port.restart(&context).await;
     Ok(token)
 }
 

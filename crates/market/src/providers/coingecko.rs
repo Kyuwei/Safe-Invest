@@ -103,9 +103,14 @@ impl QuoteProvider for CoinGeckoProvider {
         let slugs: Vec<String> = crypto.iter().map(|a| Self::slug_of(a)).collect();
         let vs = currency.to_lowercase();
         let base = &self.base;
+        // Each id is encoded on its own so the commas between them stay
+        // separators: a slug comes from a symbol, and a symbol can come from an
+        // AI's free text.
+        let ids: Vec<String> = slugs.iter().map(|slug| urlencode(slug)).collect();
         let url = format!(
-            "{base}/simple/price?ids={}&vs_currencies={vs}&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true",
-            slugs.join(",")
+            "{base}/simple/price?ids={}&vs_currencies={}&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true",
+            ids.join(","),
+            urlencode(&vs)
         );
 
         let body: Value = self.http.get_json(ID, &url, &self.headers()).await?;
@@ -194,7 +199,7 @@ impl QuoteProvider for CoinGeckoProvider {
             "{}/coins/{}/market_chart?vs_currency={}&days={days}&interval=daily",
             self.base,
             urlencode(&Self::slug_of(asset)),
-            currency.to_lowercase()
+            urlencode(&currency.to_lowercase())
         );
         let body: Value = self.http.get_json(ID, &url, &self.headers()).await?;
 

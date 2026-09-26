@@ -11,6 +11,10 @@ use jiff::Timestamp;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
+/// Room for a real explanation — a few sentences — and no more. The history
+/// is read by a person, and an unbounded field is a way to fill a save file.
+pub const MAX_RATIONALE_CHARS: usize = 1000;
+
 /// Quantities below this are rounding dust, not a position.
 const DUST: Decimal = Decimal::from_parts(1, 0, 0, false, 8); // 1e-8
 
@@ -325,10 +329,25 @@ fn validate_quote(session: &GameSession, asset: &Asset, quote: &Quote) -> Result
 /// An AI has to say why it trades. This is the whole point of AI mode: the
 /// history must read as a chain of justified decisions.
 fn validate_rationale(actor: PlayerKind, rationale: Option<&str>) -> Result<Option<String>> {
+    // One line of text, as the history shows it: control characters out and
+    // runs of blanks folded into one space.
     let trimmed = rationale
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
+        .map(|text| {
+            text.split(|c: char| c.is_whitespace() || c.is_control())
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|s| !s.is_empty());
+
+    if trimmed
+        .as_ref()
+        .is_some_and(|text| text.chars().count() > MAX_RATIONALE_CHARS)
+    {
+        return Err(TradeError::rejected(format!(
+            "La justification dépasse {MAX_RATIONALE_CHARS} caractères : une ou deux phrases suffisent."
+        )));
+    }
 
     if actor == PlayerKind::Ai && trimmed.is_none() {
         return Err(TradeError::rejected(

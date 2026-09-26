@@ -9,7 +9,7 @@ use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{ErrorData, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
-use safe_invest_core::model::{AssetKind, PlayerKind};
+use safe_invest_core::model::{AssetKind, PlayerKind, normalize_currency};
 use safe_invest_service::{
     BuyRequest, Context, NewGameRequest, SellRequest, ServiceError, SetGoalRequest, TradeSizing,
     view,
@@ -185,6 +185,11 @@ pub struct SellArgs {
 }
 
 // ------------------------------------------------------------------ tools
+
+/// How many symbols one `get_quotes` call may ask about. Each costs a request
+/// against somebody's free tier; a model asking for a hundred at once is a
+/// model that should narrow its question.
+const MAX_QUOTED_SYMBOLS: usize = 25;
 
 /// Every tool an AI can call, in the order the settings screen lists them.
 ///
@@ -566,7 +571,14 @@ impl SafeInvestServer {
         Parameters(args): Parameters<QuotesArgs>,
     ) -> Result<Json<Value>, ErrorData> {
         let kind = AssetKind::from(args.kind);
-        let currency = self.currency_for(args.currency.as_deref());
+        let currency = self.currency_for(args.currency.as_deref())?;
+
+        if args.symbols.len() > MAX_QUOTED_SYMBOLS {
+            return Err(to_error(&ServiceError::rejected(format!(
+                "{} symboles demandés : {MAX_QUOTED_SYMBOLS} au plus par appel.",
+                args.symbols.len()
+            ))));
+        }
 
         let assets: Vec<_> = args
             .symbols
@@ -606,7 +618,7 @@ impl SafeInvestServer {
         Parameters(args): Parameters<HistoryQuoteArgs>,
     ) -> Result<Json<Value>, ErrorData> {
         let kind = AssetKind::from(args.kind);
-        let currency = self.currency_for(args.currency.as_deref());
+        let currency = self.currency_for(args.currency.as_deref())?;
         let asset = self
             .context
             .resolve_asset(kind, &args.symbol)
@@ -688,15 +700,19 @@ impl SafeInvestServer {
 
     /// The currency to quote in: the one asked for, else the current game's,
     /// else the configured default.
-    fn currency_for(&self, requested: Option<&str>) -> String {
-        requested
-            .map(str::to_uppercase)
-            .or_else(|| {
-                self.current_game()
-                    .and_then(|id| self.context.load_game(id).ok())
-                    .map(|g| g.currency)
-            })
-            .unwrap_or_else(|| self.context.settings().default_currency)
+    fn currency_for(&self, requested: Option<&str>) -> Result<String, ErrorData> {
+        if let Some(requested) = requested.filter(|code| !code.trim().is_empty()) {
+            return normalize_currency(requested).ok_or_else(|| {
+                to_error(&ServiceError::rejected(format!(
+                    "Devise invalide : « {} ». Attendu : un code à trois lettres, par exemple EUR ou USD.",
+                    requested.chars().take(12).collect::<String>()
+                )))
+            });
+        }
+        Ok(self
+            .current_game()
+            .and_then(|id| self.context.load_game(id).ok())
+            .map_or_else(|| self.context.settings().default_currency, |g| g.currency))
     }
 
     fn current_game(&self) -> Option<Uuid> {

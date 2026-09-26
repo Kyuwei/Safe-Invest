@@ -132,6 +132,36 @@ fn a_game_cannot_start_on_nonsense() {
 }
 
 #[test]
+fn a_name_is_tidied_and_bounded_and_the_capital_capped() {
+    let new = |name: &str, cash: &str| {
+        factory::create(
+            NewGame {
+                player_name: name.into(),
+                player_kind: PlayerKind::Human,
+                currency: "eur".into(),
+                starting_cash: d(cash),
+                fee_percent: Decimal::ZERO,
+                goal: None,
+            },
+            now(),
+        )
+    };
+
+    let tidy = new("  Léa\n\u{7}  Martin ", "1000").unwrap();
+    assert_eq!(tidy.player_name, "Léa Martin");
+    assert_eq!(tidy.currency, "EUR");
+
+    assert_eq!(
+        new(&"x".repeat(61), "1000").unwrap_err(),
+        NewGameError::PlayerNameTooLong
+    );
+    assert_eq!(
+        new("Léa", "1000000000001").unwrap_err(),
+        NewGameError::StartingCashTooLarge
+    );
+}
+
+#[test]
 fn a_goal_must_be_ahead_in_both_money_and_time() {
     let base = || NewGame {
         player_name: "Testeur".into(),
@@ -565,6 +595,69 @@ fn a_human_may_trade_in_silence() {
     )
     .unwrap();
     assert_eq!(session.trades.len(), 1);
+}
+
+#[test]
+fn a_rationale_is_kept_on_one_line_and_bounded() {
+    let mut session = game(PlayerKind::Ai, "10000", "0");
+    let asset = btc();
+
+    engine::buy(
+        &mut session,
+        PlayerKind::Ai,
+        &asset,
+        &quote(&asset, "100"),
+        TradeAmount::Units(d("1")),
+        Some("Première ligne\r\n\tseconde\u{1b}[31m ligne"),
+        now(),
+    )
+    .unwrap();
+    assert_eq!(
+        session.trades[0].rationale.as_deref(),
+        Some("Première ligne seconde [31m ligne")
+    );
+
+    let essay = "mot ".repeat(400);
+    let error = engine::buy(
+        &mut session,
+        PlayerKind::Ai,
+        &asset,
+        &quote(&asset, "100"),
+        TradeAmount::Units(d("1")),
+        Some(&essay),
+        now(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("1000"), "{error}");
+    assert_eq!(session.trades.len(), 1);
+}
+
+#[test]
+fn a_symbol_must_look_like_a_ticker() {
+    for fine in ["BTC", "AIR.PA", "BRK-B", "EURUSD=X", "^GSPC", "cw8.pa"] {
+        assert!(Asset::is_valid_symbol(fine), "{fine}");
+    }
+    for bad in [
+        "",
+        "   ",
+        "../../admin",
+        ".hidden",
+        "BTC&vs_currencies=usd",
+        "a/b",
+        "espace dedans",
+        "X".repeat(33).as_str(),
+    ] {
+        assert!(!Asset::is_valid_symbol(bad), "{bad}");
+    }
+}
+
+#[test]
+fn a_currency_is_three_letters_or_nothing() {
+    use safe_invest_core::model::normalize_currency;
+    assert_eq!(normalize_currency(" usd ").as_deref(), Some("USD"));
+    assert_eq!(normalize_currency("EURO"), None);
+    assert_eq!(normalize_currency("E&R"), None);
+    assert_eq!(normalize_currency("€"), None);
 }
 
 // ------------------------------------------------------------ quote sanity
