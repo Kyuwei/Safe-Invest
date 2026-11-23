@@ -25,14 +25,6 @@ ignore = [
     # they cannot reach the executable that is shipped. They are accepted for
     # the Linux CI build only, and they are advisories of kind "unmaintained"
     # and "unsound", not vulnerabilities.
-    { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0412", reason = "gdk — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0413", reason = "atk — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0415", reason = "gtk — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0416", reason = "atk-sys — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0418", reason = "gdk-sys — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0419", reason = "gtk3-macros — GTK3 bindings, Linux build only" },
-    { id = "RUSTSEC-2024-0420", reason = "gtk-sys — GTK3 bindings, Linux build only" },
     { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsoundness — Linux build only, and Safe Invest never constructs one" },
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error — build-time only, via glib-macros, Linux build only" },
 
